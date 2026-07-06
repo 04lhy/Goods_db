@@ -1,0 +1,5 @@
+add_subdirectory(common)
+add_subdirectory(type)
+add_subdirectory(storage)
+add_subdirectory(buffer)
+add_subdirectory(sql)

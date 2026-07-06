@@ -1,0 +1,10 @@
+services:
+  bustub:
+    image: cpp-dev:24.04    # 复用通用镜像
+    build: .
+    container_name: bustub-dev
+    working_dir: /workspace
+    volumes:
+      - ./bustub:/workspace
+    stdin_open: true
+    tty: true
