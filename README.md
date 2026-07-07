@@ -4,15 +4,15 @@
 
 ## 项目简介
 
-goods_db 是一个面向新零售场景的数据库存储引擎，参考 MySQL 插件式存储引擎架构设计。支持完整的 CRUD 操作、B+Tree 和 Extendible Hash 双索引、LRU-K/Clock 缓存替换策略，以及 slotted page 磁盘管理。
+goods_db 是一个面向新零售场景的完整数据库系统，参考 MySQL 插件式存储引擎架构设计。支持完整的 CRUD 操作、B+Tree 和 Extendible Hash 双索引、LRU-K/Clock 缓存替换策略、slotted page 磁盘管理，以及基于 Qt 6 的桌面客户端（goods_db_studio）。
 
 ## 团队成员
 
 | 成员 | 分工 |
 |------|------|
-| **刘晗阳**（组长） | 索引层（B+Tree / ExtendibleHashIndex） |
+| **刘晗阳**（组长） | 索引层（B+Tree / ExtendibleHashIndex）+ **桌面客户端（goods_db_studio）** |
 | 肖清峰 | 引擎接口层 / 集成联调（handlerton, handler, goods_handler） |
-| 李锦华 | 磁盘与缓冲层（DiskManager, BufferPoolManager） |
+| 李锦华 | 磁盘与缓冲层（DiskManager, BufferPoolManager）+ **桌面客户端辅助** |
 | 杨玉山 | 表与元组层（TablePage, Tuple, TableHeap, TableIterator） |
 | 唐瑞涛 | 项目骨架 / 工具链 / 通用组件（CMake, Catalog, RWLatch, Config, Logger） |
 | 王宇航 | 缓冲池替换策略 + 页保护（LRU-K, ClockReplacer, PageGuard） |
@@ -34,6 +34,15 @@ Goods_db/
 │   ├── test/                    # 单元测试 & 集成测试
 │   ├── third_party/             # 第三方库（符号链接 → bustub/third_party）
 │   └── CMakeLists.txt
+├── goods_db_studio/             # 桌面客户端（Qt 6 Widgets）
+│   ├── src/
+│   │   ├── main_window.ui       # 主窗口布局
+│   │   ├── sql_editor/          # SQL 编辑器（语法高亮 + 执行）
+│   │   ├── result_view/         # 结果表格浏览
+│   │   ├── object_tree/         # 数据库/表/索引对象树
+│   │   ├── connection/          # 连接管理
+│   │   └── tools/               # 管理/备份/日志工具面板
+│   └── CMakeLists.txt
 ├── bustub/                      # CMU BusTub 参考实现（MIT License）
 ├── 第一周/                       # 团队和个人周计划
 ├── 模板/                         # 报告/计划模板
@@ -54,10 +63,24 @@ Goods_db/
 | Catalog + handlerton + handler | ✅ |
 | 集成测试 (FullEndToEnd) | ✅ |
 
+## 待实现模块
+
+| 模块 | 状态 |
+|------|------|
+| 查询引擎层 (SQL 解析 / Binder / Planner / Optimizer / Executor) | 🚧 第二阶段 |
+| 网络通信协议 (TCP/IP + Protocol 类层次) | 🚧 第三阶段 |
+| 日志子系统 (Error / Query / Binlog) | 🚧 第三阶段 |
+| 线程与内存管理 (连接线程池) | 🚧 第三阶段 |
+| 安全管理 (用户认证 / 权限控制) | 🚧 第三阶段 |
+| 数据库管理工具 (goods_db_admin) | 🚧 第四阶段 |
+| 备份子系统 (goods_db_dump) | 🚧 第四阶段 |
+| **桌面客户端 (goods_db_studio)** | 🚧 第三-四阶段 |
+
 ## 环境要求
 
 - **编译器**: clang-15+
 - **CMake**: 3.22+
+- **Qt**: 6.5+（桌面客户端）
 - **操作系统**: Linux (Ubuntu 24.04 推荐)
 
 ### Docker 环境（推荐）
