@@ -97,8 +97,50 @@ const std::string& Value::GetAsVarchar() const {
     return varchar_data_;
 }
 
+// =============================================================================
+// Numeric type promotion
+// =============================================================================
+namespace {
+
+// Promotion rank for numeric types (higher = wider)
+int NumericRank(TypeId type) {
+    switch (type) {
+        case TypeId::TINYINT:  return 1;
+        case TypeId::SMALLINT: return 2;
+        case TypeId::INTEGER:  return 3;
+        case TypeId::BIGINT:   return 4;
+        case TypeId::DECIMAL:  return 5;
+        default: return 0;
+    }
+}
+
+bool IsNumericType(TypeId type) {
+    return type == TypeId::TINYINT || type == TypeId::SMALLINT ||
+           type == TypeId::INTEGER || type == TypeId::BIGINT ||
+           type == TypeId::DECIMAL;
+}
+
+// Convert a numeric Value to double for comparison
+double ToDouble(const Value& v) {
+    switch (v.GetTypeId()) {
+        case TypeId::TINYINT:  return static_cast<double>(v.GetAsTinyInt());
+        case TypeId::SMALLINT: return static_cast<double>(v.GetAsSmallInt());
+        case TypeId::INTEGER:  return static_cast<double>(v.GetAsInteger());
+        case TypeId::BIGINT:   return static_cast<double>(v.GetAsBigInt());
+        case TypeId::DECIMAL:  return v.GetAsDecimal();
+        default: return 0.0;
+    }
+}
+
+}  // namespace
+
 // Comparison
 bool Value::operator==(const Value& other) const {
+    // Cross-type numeric comparison: promote both to double
+    if (IsNumericType(type_id_) && IsNumericType(other.type_id_)) {
+        return ToDouble(*this) == ToDouble(other);
+    }
+
     if (type_id_ != other.type_id_) return false;
     switch (type_id_) {
         case TypeId::INVALID: return true;
@@ -115,7 +157,13 @@ bool Value::operator==(const Value& other) const {
 }
 
 bool Value::operator<(const Value& other) const {
-    GOODS_DB_ASSERT(type_id_ == other.type_id_, "Type mismatch in comparison");
+    // Cross-type numeric comparison: promote both to double
+    if (IsNumericType(type_id_) && IsNumericType(other.type_id_)) {
+        return ToDouble(*this) < ToDouble(other);
+    }
+
+    GOODS_DB_ASSERT(type_id_ == other.type_id_,
+                    "Type mismatch in comparison");
     switch (type_id_) {
         case TypeId::BOOLEAN: return static_cast<int>(data_.boolean) < static_cast<int>(other.data_.boolean);
         case TypeId::TINYINT: return data_.tinyint < other.data_.tinyint;

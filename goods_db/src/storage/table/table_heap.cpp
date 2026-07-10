@@ -46,7 +46,7 @@ bool TableHeap::InsertTuple(const Tuple& tuple, RID* rid) {
         prev_page_id = current_page_id;
         current_page_id = table_page.GetNextPageId();
         page->WUnlatch();
-        bpm_->UnpinPage(current_page_id, false);
+        bpm_->UnpinPage(prev_page_id, false);
     }
 
     // No page with enough space: allocate a new page
@@ -146,12 +146,17 @@ bool TableHeap::UpdateTuple(const RID& rid, const Tuple& new_tuple, RID* new_rid
     }
 
     // Tuple grew: mark old as deleted and insert new
-    page->WLatch();
-    table_page.LoadFromData(page->GetData());
-    table_page.MarkDelete(rid.slot_id);
-    page->MarkDirty();
-    page->WUnlatch();
-    bpm_->UnpinPage(rid.page_id, true);
+    // Re-fetch the page since it was unpinned above
+    Page* old_page = bpm_->FetchPage(rid.page_id);
+    if (old_page) {
+        old_page->WLatch();
+        TablePage tp;
+        tp.LoadFromData(old_page->GetData());
+        tp.MarkDelete(rid.slot_id);
+        old_page->MarkDirty();
+        old_page->WUnlatch();
+        bpm_->UnpinPage(rid.page_id, true);
+    }
 
     // Insert new tuple elsewhere
     return InsertTuple(new_tuple, new_rid);

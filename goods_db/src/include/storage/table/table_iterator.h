@@ -25,6 +25,8 @@ public:
     TableIterator(BufferPoolManager* bpm, page_id_t first_page_id,
                   const Schema* schema);
 
+    ~TableIterator();
+
     /** Check if there are more tuples */
     bool HasNext();
 

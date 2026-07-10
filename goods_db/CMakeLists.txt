@@ -34,6 +34,13 @@ set(PROJECT_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
 set(PROJECT_INCLUDE_DIR ${PROJECT_SRC_DIR}/include)
 
 # =============================================================================
+# Helper: disable_target_warnings (required by libpg_query's CMakeLists.txt)
+# =============================================================================
+function(disable_target_warnings NAME)
+    target_compile_options(${NAME} PRIVATE "-w")
+endfunction()
+
+# =============================================================================
 # Third Party Libraries (symlink from BusTub)
 # =============================================================================
 set(THIRD_PARTY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party)
@@ -44,6 +51,9 @@ option(ENABLE_GTEST "Enable Google Test" ON)
 # fmt - formatting library
 add_subdirectory(${THIRD_PARTY_DIR}/fmt ${CMAKE_BINARY_DIR}/third_fmt)
 set(FMT_LIB fmt::fmt)
+
+# libpg_query - PostgreSQL parser
+add_subdirectory(${THIRD_PARTY_DIR}/libpg_query ${CMAKE_BINARY_DIR}/third_pg_query)
 
 # Google Test
 if(ENABLE_GTEST)

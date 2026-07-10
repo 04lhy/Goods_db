@@ -173,7 +173,7 @@ TEST_F(GoodsDBIntegrationTest, BPlusTreeIndex) {
         EXPECT_NE(rid.page_id, 0) << "Key " << i << " not found in index";
         if (rid.page_id != 0) {
             Tuple tuple;
-            ASSERT_TRUE(handler.rnd_pos(&tuple, rid));
+            ASSERT_EQ(handler.rnd_pos(&tuple, rid), 0);
             EXPECT_EQ(tuple.GetValue(&schema, 0).GetAsInteger(), i);
         }
     }
@@ -272,17 +272,20 @@ TEST_F(GoodsDBIntegrationTest, UpdateAndDelete) {
     EXPECT_EQ(handler.update_row(rid_to_update, new_tuple), 0);
 
     // Delete id=3
+    RID rid_to_delete;
     handler.rnd_init(true);
     while (true) {
         Tuple tuple;
         int ret = handler.rnd_next(&tuple);
         if (ret != 0) break;
         if (tuple.GetValue(&schema, 0).GetAsInteger() == 3) {
-            EXPECT_EQ(handler.delete_row(tuple.GetRid()), 0);
+            rid_to_delete = tuple.GetRid();
             break;
         }
     }
     handler.rnd_end();
+    EXPECT_NE(rid_to_delete.page_id, 0);
+    EXPECT_EQ(handler.delete_row(rid_to_delete), 0);
 
     // Verify: still 10 records info, but id=3 is deleted (soft)
     // In a real system, records() skips deleted ones; our implementation

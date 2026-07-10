@@ -30,6 +30,11 @@ Goods_db/
 │   │   │   ├── buffer/          # BufferPoolManager, LRU-K/ClockReplacer
 │   │   │   ├── catalog/         # Catalog
 │   │   │   └── sql/             # handler, handlerton, goods_handler
+│   │   │       ├── binder/       # 语义绑定 (AST → BoundStatement)
+│   │   │       ├── executor/     # Volcano 模型执行器 (13 种算子)
+│   │   │       ├── optimizer/    # 优化规则 (谓词下推/列裁剪/索引选择等)
+│   │   │       ├── parser/       # SQL 解析 (libpg_query → AST)
+│   │   │       └── planner/      # 计划生成 (BoundStatement → PlanNode)
 │   │   └── ...                  # 各模块实现文件
 │   ├── test/                    # 单元测试 & 集成测试
 │   ├── third_party/             # 第三方库（符号链接 → bustub/third_party）
@@ -61,13 +66,20 @@ Goods_db/
 | B+Tree Index | ✅ 6/6 pass |
 | Extendible Hash Index | ✅ 6/6 pass |
 | Catalog + handlerton + handler | ✅ |
-| 集成测试 (FullEndToEnd) | ✅ |
+| SQL Parser (libpg_query) | ✅ 48/48 pass |
+| Binder (语义绑定) | ✅ 18/18 pass |
+| Planner (PlanNode 树) | ✅ 9/9 pass |
+| Executor (Volcano 模型) | ✅ 13/13 pass |
+| Optimizer (6 条优化规则) | ✅ |
+| LockManager + TransactionManager | ✅ |
+| 集成测试 (FullEndToEnd) | ✅ 9/9 pass |
+| 全量单元测试 | ✅ 125/125 pass |
 
 ## 待实现模块
 
 | 模块 | 状态 |
 |------|------|
-| 查询引擎层 (SQL 解析 / Binder / Planner / Optimizer / Executor) | 🚧 第二阶段 |
+| 查询引擎层 (SQL 解析 / Binder / Planner / Optimizer / Executor) | ✅ 已完成 |
 | 网络通信协议 (TCP/IP + Protocol 类层次) | 🚧 第三阶段 |
 | 日志子系统 (Error / Query / Binlog) | 🚧 第三阶段 |
 | 线程与内存管理 (连接线程池) | 🚧 第三阶段 |

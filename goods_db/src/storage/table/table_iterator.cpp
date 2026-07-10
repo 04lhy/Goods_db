@@ -8,6 +8,15 @@ TableIterator::TableIterator(BufferPoolManager* bpm, page_id_t first_page_id,
     Reset();
 }
 
+TableIterator::~TableIterator() {
+    // Release any page still held by the iterator
+    if (current_page_ != nullptr) {
+        current_page_->RUnlatch();
+        bpm_->UnpinPage(current_page_->GetPageId(), false);
+        current_page_ = nullptr;
+    }
+}
+
 void TableIterator::Reset() {
     current_page_id_ = first_page_id_;
     current_slot_id_ = -1;
@@ -107,7 +116,7 @@ uint32_t TableIterator::Count() {
         Next();
         count++;
     }
-    Reset();  // Reset back to beginning
+    // Don't reset — the caller is done; destructor will clean up the page
     return count;
 }
 
