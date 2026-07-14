@@ -85,6 +85,13 @@ private:
 
     /** Check if a function name is an aggregate */
     static bool IsAggregate(const std::string& name);
+
+    /**
+     * Resolve a table name from possibly database-qualified format (db.table).
+     * If the name contains '.', extracts the portion after the last '.'.
+     * For a single-database catalog, the db prefix is ignored.
+     */
+    static std::string ResolveTableName(const std::string& qualified_name);
 };
 
 }  // namespace goods_db

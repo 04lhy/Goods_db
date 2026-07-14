@@ -1,0 +1,72 @@
+# goods_db systemd 服务单元文件
+# 安装位置: /etc/systemd/system/goods_db.service
+#
+# 安装步骤:
+#   sudo cp goods_db.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable goods_db
+#   sudo systemctl start goods_db
+#
+# 管理命令:
+#   sudo systemctl status goods_db      # 查看状态
+#   sudo systemctl start goods_db       # 启动
+#   sudo systemctl stop goods_db        # 停止（优雅关闭）
+#   sudo systemctl restart goods_db     # 重启
+#   sudo systemctl reload goods_db      # 重新加载配置 (SIGHUP)
+#   sudo journalctl -u goods_db -f      # 查看日志
+
+[Unit]
+Description=goods_db Database Server
+Documentation=https://github.com/your-org/goods_db
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+
+# 运行用户和组
+User=goods_db
+Group=goods_db
+
+# 工作目录
+WorkingDirectory=/var/lib/goods_db
+
+# 环境变量
+Environment="GOODS_DB_HOME=/var/lib/goods_db"
+
+# 启动命令
+ExecStart=/usr/local/bin/goods_db_server \
+    --host 0.0.0.0 \
+    --port 3307 \
+    --datadir /var/lib/goods_db/data \
+    --config /etc/goods_db/goods_db.conf
+
+# 重启策略
+Restart=on-failure
+RestartSec=5
+
+# 优雅关闭: 发送 SIGTERM，等待 30 秒后强制 SIGKILL
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# 资源限制
+LimitNOFILE=65536
+LimitNPROC=4096
+LimitCORE=infinity
+
+# 安全加固
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/goods_db /var/log/goods_db
+ReadOnlyPaths=/etc/goods_db
+
+# 日志集成到 journald
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=goods_db
+
+[Install]
+WantedBy=multi-user.target

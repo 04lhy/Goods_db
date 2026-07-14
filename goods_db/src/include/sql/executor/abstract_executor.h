@@ -45,6 +45,7 @@ struct ExecutorContext {
     Catalog* catalog{nullptr};
     BufferPoolManager* bpm{nullptr};
     DiskManager* disk_manager{nullptr};
+    int affected_rows{0};  // populated by DML executors (INSERT/UPDATE/DELETE)
 };
 
 // =============================================================================
@@ -96,12 +97,12 @@ public:
 
     void Init() override;
     bool Next(Tuple* tuple, RID* rid) override;
-    const Schema* GetOutputSchema() override { return &output_schema_; }
+    const Schema* GetOutputSchema() override { return &plan_->GetOutputSchema(); }
 
 private:
     const ProjectionPlanNode* plan_;
     std::unique_ptr<AbstractExecutor> child_;
-    Schema output_schema_;
+    bool produced_{false};  // for SELECT without FROM: produce one constant row
 };
 
 // =============================================================================

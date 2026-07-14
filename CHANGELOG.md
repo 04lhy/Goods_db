@@ -1,6 +1,113 @@
 # Changelog
 
-## [Phase 2] — 2025-07-08
+## [Phase 3 Hotfix] — 2026-07-13
+
+### 修复 (Fixed) — SQL 兼容性问题（参考 docs/sql_issues.md）
+
+#### P0 阻塞性问题
+- **`db.table` 格式表名解析**：Binder 各 Bind 方法新增 `ResolveTableName()` 辅助函数，自动拆分 `db.table` 格式，解决 web 前端所有 CRUD 操作报 "Table not found" 的问题
+- **SHOW COLUMNS 反引号处理**：修复 `FROM` 子句偏移量，新增 `TrimIdentifier()` 去除反引号包裹，正确处理 `` SHOW COLUMNS FROM `default`.`students` `` 等格式
+- **SHOW TABLES FROM 子句**：解析 `FROM <db>` 并过滤数据库，支持 SHOW TABLES FROM goods_db
+
+#### P1 功能性缺陷
+- **CREATE DATABASE / DROP DATABASE**：在 ExecutionEngine 预检查中添加两个命令的处理，支持 IF NOT EXISTS / IF EXISTS
+- **多数据库架构**：Catalog 新增 `DatabaseInfo` 层（Database → Table → Index），支持多数据库命名空间，默认数据库名改为 `goods_db`
+- **affected_rows 传递**：ExecutorContext 新增 affected_rows 字段，DML executor（Insert/Update/Delete）自动计数，ConnectionHandler 正确返回受影响行数
+
+#### P2 兼容性改进
+- **多语句支持**：HandleQuery 中循环调用 SplitSql → ExecuteSQL，支持分号分隔的多条 SQL
+- **默认数据库名**：从 SQL 保留字 `default` 改为 `goods_db`，避免反引号包裹问题
+
+## [Phase 3] — 2026-07-10
+
+### 新增 (Added) — 系统服务层
+
+#### 网络协议层（设计六）
+- **Protocol 抽象基类**：定义统一的结果集序列化接口（StartResultMetadata / SendColumnDefinition / Store* / SendOk / SendError / SendEOF）
+- **Protocol_text**：文本协议实现（人类可读，支持 telnet/nc 调试）。格式：`Columns: N` + `ColDef: name type len` + `Row: val1\tval2...` + `OK/ERR/EOF`
+- **Protocol_binary**：二进制协议实现（紧凑编码，LE int + 长度前缀字符串 + 类型标签）
+- **Connection**：TCP socket 封装，ReadPacket/WritePacket（4字节头 + payload），生命周期状态机（INIT→AUTH→READY→QUERYING→SENDING）
+- **SocketServer**：TCP 监听器，CreateSocket/Listen/Accept/SetNonBlocking
+
+#### 线程与服务器管理（设计七）
+- **ThreadPool**：固定大小工作线程池（默认 = CPU 核心数），Submit(task)→future，支持 Shutdown/ShutdownNow
+- **ConnectionHandler**：连接完整生命周期管理（握手→认证→命令分发→SQL执行→结果返回）
+- **goods_db_server**：服务器主入口，完整启动流程（解析参数→初始化Logger→注册引擎→初始化子系统→启动线程池→监听accept循环→优雅关闭）
+
+#### 日志子系统（设计五）
+- **ErrorLog**：服务器错误日志，格式 `[时间戳] [级别] [线程ID] [文件:行] 消息`，级别（DEBUG/INFO/WARN/ERROR/FATAL），双输出（文件+stderr）
+- **QueryLog**：SQL 查询日志，格式 `[时间戳] [user@host] [database] [耗时ms] [影响行数] sql`，自动轮转（100MB切割）
+- **BinaryLog**：WAL binlog，4种事件类型（QUERY/ROW_INSERT/ROW_UPDATE/ROW_DELETE/XID），事件包含时间戳+tid+payload+CRC32，支持文件轮转和索引文件
+- **LogManager**：统一管理三层日志的初始化和关闭
+- **goods_db_binlog**：命令行 binlog 解析工具，支持 --start-position / --stop-position / --verbose
+
+#### 安全管理（设计九）
+- **AuthManager**：用户认证与 ACL 权限控制
+- **SHA-256**：自包含实现（无外部依赖），密码存储为 SHA-256(password + 16字节随机salt)
+- **ACL 三张系统表**：goods_db.user（用户认证）/ goods_db.db（库级权限）/ goods_db.tables_priv（表级权限），位掩码权限模型（SELECT|INSERT|UPDATE|DELETE|CREATE|DROP|INDEX|ALTER|GRANT）
+- **认证流程**：handshake→password_hash 比对→加载权限缓存→返回OK/ERR
+- **主机封锁**：同一IP连续失败10次→封锁5分钟
+- **SQL 命令**：CREATE USER / DROP USER / ALTER USER / SET PASSWORD / GRANT / REVOKE / FLUSH PRIVILEGES
+
+#### 桌面客户端（设计十）
+- **工程骨架**：CMakeLists.txt（Qt6 Widgets+Sql+Network）+ main.cpp + QRC资源文件
+- **MainWindow**：菜单栏（6个菜单）+ 工具栏（6个按钮）+ 4 DockWidget（左对象树/右表详情/底结果/中编辑器）+ 状态栏（连接状态+数据库+事务）
+- **GoodsDbClient**：QTcpSocket 封装，Connect/Authenticate/Execute/Ping，协议适配（解析 Columns/ColDef/Row/OK/ERR/EOF）
+- **ConnectionDialog**：连接表单（主机/端口/用户/密码/数据库/连接名）+ 测试连接 + QSettings 持久化
+- **ConnectionPool**：多连接管理（添加/删除/切换），信号通知连接状态变化
+- **SqlHighlighter**：6类语法高亮（~80关键字蓝色/15类型青色/字符串橙红/数字浅绿/注释灰色/20+函数紫色），多行注释支持
+- **SqlEditorWidget**：QTabWidget 多标签 + SqlEditor（QPlainTextEdit子类化暴露protected方法）+ LineNumberArea 行号区 + Ctrl+T/W快捷键
+- **QueryExecutor**：异步执行（QTimer），分号分割多语句，非阻塞UI
+- **QueryHistory**：本地 SQLite 持久化查询历史（最近1000条，支持搜索）
+- **ResultTableModel**：QAbstractTableModel，NULL特殊渲染（灰色斜体），数值右对齐，tooltip显示长文本
+- **ResultTableView**：QTableView + 分页（>1000行自动分页）+ 右键导出菜单
+- **ResultPagination**：上一页/下一页/跳转控件 + 总行数显示
+- **ExportDialog**：导出 CSV / JSON / SQL INSERT 三种格式
+- **ObjectTreeModel**：树形模型（Server→Database→Tables→Table→Columns→Column），支持动态添加节点
+- **ObjectTreeWidget**：QTreeView + 双击表名自动SELECT + 右键菜单（打开/查看结构/复制名称/生成CRUD模板）
+- **TableInfoPanel**：显示选定表的列定义（列名+类型）
+- **主题**：深色主题（VSCode Dark+风格，默认）+ 浅色主题，Ctrl+T 切换
+
+### 新增文件（60+ 个）
+
+```
+服务端 (35 个):
+  include/sql/protocol/{protocol,protocol_text,protocol_binary}.h
+  include/sql/network/{connection,net_serv}.h
+  include/sql/server/{thread_pool,connection_handler}.h
+  include/sql/log/{error_log,query_log,binary_log,log_manager}.h
+  include/sql/security/auth_manager.h
+  sql/protocol/{protocol,protocol_text,protocol_binary}.cpp
+  sql/network/{connection,net_serv}.cpp
+  sql/server/{thread_pool,connection_handler,goods_db_main}.cpp
+  sql/log/{error_log,query_log,binary_log,log_manager}.cpp
+  sql/security/auth_manager.cpp
+  sql/binlog/goods_db_binlog.cpp
+
+桌面客户端 (38 个):
+  goods_db_studio/CMakeLists.txt
+  resources/{resources.qrc,themes/dark.qss,themes/light.qss}
+  src/{main.cpp,main_window.h,main_window.cpp}
+  src/network/{goods_db_client.h/.cpp,protocol_text_adapter.h/.cpp}
+  src/connection/{connection_dialog.h/.cpp,connection_pool.h/.cpp}
+  src/sql_editor/{sql_highlighter,sql_editor_widget,query_executor,query_history}.{h,cpp}
+  src/result_view/{result_table_model,result_table_view,result_pagination,export_dialog}.{h,cpp}
+  src/object_tree/{object_tree_model,object_tree_widget,table_info_panel}.{h,cpp}
+```
+
+### 文档更新
+- 新增 [操作手册](goods_db/docs/operations_guide.md)
+- 更新 README.md（模块状态、项目结构、快速开始）
+- 更新 CHANGELOG.md
+
+### 编译状态
+- **服务端**：✅ 编译零错误（clang-15, C++17）
+- **桌面客户端**：✅ 编译零错误（Qt 6.2.4, C++17）
+- **测试**：✅ 回归测试全部通过（parser_test / binder_test / integration_test PASS）
+
+---
+
+## [Phase 2 Hotfix] — 2026-07-08
 
 ### 修复 (Fixed)
 - **Bug 1 — rnd_pos 测试断言错误**：`ASSERT_TRUE(handler.rnd_pos(...))` 改为 `ASSERT_EQ(..., 0)`。rnd_pos 返回 0 表示成功（C 惯例），`ASSERT_TRUE(0)` 在 C++ 中为 false。
@@ -28,7 +135,7 @@
 
 ---
 
-## [Phase 2] — 2025-07-07
+## [Phase 2] — 2026-07-07
 
 ### 新增 (Added)
 - **Parser 模块**：集成 libpg_query，实现 SQL → AST 完整解析链路（SELECT/INSERT/UPDATE/DELETE/CREATE/DROP/CREATE INDEX），通过 48 项测试
@@ -59,7 +166,7 @@
 
 ---
 
-## [Phase 1] — 2025-07-06
+## [Phase 1] — 2026-07-06
 
 ### 修复 (Fixed)
 - **TablePage InsertTuple 布局 bug**：重写为标准 Slotted page 布局（slots 向高地址增长，tuples 向低地址增长）

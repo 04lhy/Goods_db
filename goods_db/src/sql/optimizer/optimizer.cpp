@@ -34,6 +34,10 @@ void Optimizer::ApplyToChildren(
 // =============================================================================
 // Rule 1: Predicate Pushdown
 // Filter → SeqScan  →  SeqScan(with filter_predicate)
+//
+// NOTE: This optimization is currently disabled because SeqScanExecutor
+// does not evaluate filter_predicate. When SeqScanExecutor gains filter
+// evaluation support, re-enable this rule.
 // =============================================================================
 
 std::unique_ptr<PlanNode> Optimizer::Rule_PredicatePushdown(
@@ -43,19 +47,9 @@ std::unique_ptr<PlanNode> Optimizer::Rule_PredicatePushdown(
     // Recurse first
     ApplyToChildren(plan, &Optimizer::Rule_PredicatePushdown);
 
-    // Check if this is Filter → SeqScan
-    if (plan->GetType() == PlanNodeType::FILTER) {
-        auto* filter = static_cast<FilterPlanNode*>(plan.get());
-        if (filter->GetChildren().size() == 1 &&
-            filter->GetChildren()[0]->GetType() == PlanNodeType::SEQ_SCAN) {
-            auto child = std::move(filter->GetChildren()[0]);
-            auto* seq_scan = static_cast<SeqScanPlanNode*>(child.get());
-            // Push predicate down to SeqScan
-            seq_scan->filter_predicate = std::move(filter->predicate);
-            // Replace Filter with SeqScan (which now has the predicate)
-            return child;
-        }
-    }
+    // Disabled: SeqScanExecutor does not evaluate filter_predicate yet.
+    // When enabled, this rule would push Filter predicates into SeqScan
+    // and remove the Filter node.
 
     return plan;
 }

@@ -26,6 +26,9 @@ SeqScanExecutor::SeqScanExecutor(ExecutorContext* ctx,
 
 void SeqScanExecutor::Init() {
     if (ctx_->table_handler) {
+        // Open the table before scanning (the handler is created fresh each query)
+        ctx_->table_handler->close();
+        ctx_->table_handler->open(plan_->table_name.c_str());
         ctx_->table_handler->rnd_init(true);
     }
     scan_started_ = true;
@@ -78,8 +81,10 @@ ProjectionExecutor::ProjectionExecutor(ExecutorContext* /*ctx*/,
 
 void ProjectionExecutor::Init() {
     if (child_) child_->Init();
+    produced_ = false;
 
-    // Build output schema from expressions
+    // Build output schema from expressions and store it in the plan node
+    // (so it outlives this executor — the plan node is owned by the caller)
     std::vector<Column> out_cols;
     for (auto& expr : plan_->expressions) {
         Column col;
@@ -91,11 +96,26 @@ void ProjectionExecutor::Init() {
         col.max_length = (col.column_type == TypeId::VARCHAR) ? 256 : 0;
         out_cols.push_back(std::move(col));
     }
-    output_schema_ = Schema(std::move(out_cols));
+    // Store schema on plan node — GetOutputSchema() points to this
+    const_cast<ProjectionPlanNode*>(plan_)->SetOutputSchema(Schema(std::move(out_cols)));
 }
 
 bool ProjectionExecutor::Next(Tuple* tuple, RID* /*rid*/) {
-    if (!child_) return false;
+    const Schema* out_schema = &plan_->GetOutputSchema();
+
+    // If no child (e.g. SELECT 1 without FROM), produce one row from constants
+    if (!child_) {
+        if (produced_) return false;
+        produced_ = true;
+        // Evaluate expressions against nullptr/empty schema — constants work, col refs become NULL
+        std::vector<Value> values;
+        Tuple dummy;
+        for (auto& expr : plan_->expressions) {
+            values.push_back(expr->Evaluate(&dummy, nullptr));
+        }
+        *tuple = Tuple::CreateFromValues(values, out_schema);
+        return true;
+    }
 
     Tuple input_tuple;
     auto* input_schema = child_->GetOutputSchema();
@@ -108,7 +128,7 @@ bool ProjectionExecutor::Next(Tuple* tuple, RID* /*rid*/) {
         values.push_back(std::move(val));
     }
 
-    *tuple = Tuple::CreateFromValues(values, &output_schema_);
+    *tuple = Tuple::CreateFromValues(values, out_schema);
     return true;
 }
 
@@ -155,6 +175,11 @@ InsertExecutor::InsertExecutor(ExecutorContext* ctx,
 
 void InsertExecutor::Init() {
     executed_ = false;
+    // Open the table before writing
+    if (ctx_->table_handler && !plan_->table_name.empty()) {
+        ctx_->table_handler->close();
+        ctx_->table_handler->open(plan_->table_name.c_str());
+    }
 }
 
 bool InsertExecutor::Next(Tuple* /*tuple*/, RID* /*rid*/) {
@@ -178,6 +203,7 @@ bool InsertExecutor::Next(Tuple* /*tuple*/, RID* /*rid*/) {
 
         auto tuple = Tuple::CreateFromValues(values, plan_->table_schema);
         ctx_->table_handler->write_row(tuple);
+        ctx_->affected_rows++;
     }
 
     return false;  // INSERT produces no output rows
@@ -193,6 +219,10 @@ UpdateExecutor::UpdateExecutor(ExecutorContext* ctx,
     : ctx_(ctx), plan_(plan), child_(std::move(child)) {}
 
 void UpdateExecutor::Init() {
+    if (ctx_->table_handler && !plan_->table_name.empty()) {
+        ctx_->table_handler->close();
+        ctx_->table_handler->open(plan_->table_name.c_str());
+    }
     if (child_) child_->Init();
     executed_ = false;
 }
@@ -205,25 +235,36 @@ bool UpdateExecutor::Next(Tuple* /*tuple*/, RID* /*rid*/) {
     if (!schema) schema = plan_->table_schema;
     if (!schema) return false;
 
+    // Phase 1: Collect all matching (RID, Tuple) pairs — we must NOT modify
+    // the table while the child iterator holds page latches, or we deadlock.
+    struct RowChange {
+        RID rid;
+        std::vector<Value> new_values;
+    };
+    std::vector<RowChange> changes;
+
     Tuple input_tuple;
     RID input_rid;
     while (child_->Next(&input_tuple, &input_rid)) {
-        // Build new tuple: copy existing values, replace SET columns
         std::vector<Value> values;
         for (uint32_t i = 0; i < schema->GetColumnCount(); i++) {
             values.push_back(input_tuple.GetValue(schema, i));
         }
-
-        // Apply SET clauses
         for (auto& sc : plan_->set_clauses) {
             if (sc.col_idx >= 0 &&
                 sc.col_idx < static_cast<int32_t>(values.size())) {
                 values[sc.col_idx] = sc.value->Evaluate(&input_tuple, schema);
             }
         }
+        changes.push_back({input_rid, std::move(values)});
+    }
+    // Child iterator is now exhausted — all page latches are released.
 
-        auto new_tuple = Tuple::CreateFromValues(values, schema);
-        ctx_->table_handler->update_row(input_rid, new_tuple);
+    // Phase 2: Apply all updates safely
+    for (auto& ch : changes) {
+        auto new_tuple = Tuple::CreateFromValues(ch.new_values, schema);
+        ctx_->table_handler->update_row(ch.rid, new_tuple);
+        ctx_->affected_rows++;
     }
 
     return false;
@@ -247,10 +288,20 @@ bool DeleteExecutor::Next(Tuple* /*tuple*/, RID* /*rid*/) {
     if (executed_ || !ctx_->table_handler || !child_) return false;
     executed_ = true;
 
+    // Phase 1: Collect all matching RIDs — avoid modifying while child iterator
+    // holds page latches (would deadlock on WLatch vs RLatch).
+    std::vector<RID> rids;
     Tuple input_tuple;
     RID input_rid;
     while (child_->Next(&input_tuple, &input_rid)) {
-        ctx_->table_handler->delete_row(input_rid);
+        rids.push_back(input_rid);
+    }
+    // Child iterator is now exhausted — all page latches are released.
+
+    // Phase 2: Delete all matching rows safely
+    for (auto& rid : rids) {
+        ctx_->table_handler->delete_row(rid);
+        ctx_->affected_rows++;
     }
 
     return false;

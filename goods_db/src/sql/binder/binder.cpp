@@ -326,16 +326,25 @@ std::unique_ptr<BoundStatement> Binder::Bind(ASTStatement* stmt) {
 std::unique_ptr<BoundSelectStmt> Binder::BindSelect(SelectStatement* stmt) {
     auto result = std::make_unique<BoundSelectStmt>();
 
-    // Resolve table
-    TableInfo* table_info = catalog_->GetTable(stmt->table_name);
-    if (!table_info) {
-        error_message_ = "Table not found: " + stmt->table_name;
-        return nullptr;
-    }
-    result->table_name = stmt->table_name;
-    result->table_schema = &table_info->schema;
+    const Schema* schema = nullptr;
 
-    const Schema* schema = result->table_schema;
+    // Resolve table (optional — SELECT without FROM is allowed, e.g. SELECT 1)
+    if (!stmt->table_name.empty()) {
+        std::string actual_table = ResolveTableName(stmt->table_name);
+        TableInfo* table_info = catalog_->GetTable(actual_table);
+        if (!table_info) {
+            error_message_ = "Table not found: " + actual_table;
+            return nullptr;
+        }
+        result->table_name = actual_table;
+        result->table_schema = &table_info->schema;
+        schema = result->table_schema;
+    } else {
+        // No FROM clause — queries like "SELECT 1", "SELECT 1+2"
+        result->table_name = "";
+        result->table_schema = nullptr;
+        schema = nullptr;
+    }
 
     // Bind select list
     for (auto& expr : stmt->select_list) {
@@ -401,12 +410,13 @@ std::unique_ptr<BoundSelectStmt> Binder::BindSelect(SelectStatement* stmt) {
 std::unique_ptr<BoundInsertStmt> Binder::BindInsert(InsertStatement* stmt) {
     auto result = std::make_unique<BoundInsertStmt>();
 
-    TableInfo* table_info = catalog_->GetTable(stmt->table_name);
+    std::string actual_table = ResolveTableName(stmt->table_name);
+    TableInfo* table_info = catalog_->GetTable(actual_table);
     if (!table_info) {
-        error_message_ = "Table not found: " + stmt->table_name;
+        error_message_ = "Table not found: " + actual_table;
         return nullptr;
     }
-    result->table_name = stmt->table_name;
+    result->table_name = actual_table;
     result->table_schema = &table_info->schema;
 
     const Schema* schema = result->table_schema;
@@ -448,12 +458,13 @@ std::unique_ptr<BoundInsertStmt> Binder::BindInsert(InsertStatement* stmt) {
 std::unique_ptr<BoundUpdateStmt> Binder::BindUpdate(UpdateStatement* stmt) {
     auto result = std::make_unique<BoundUpdateStmt>();
 
-    TableInfo* table_info = catalog_->GetTable(stmt->table_name);
+    std::string actual_table = ResolveTableName(stmt->table_name);
+    TableInfo* table_info = catalog_->GetTable(actual_table);
     if (!table_info) {
-        error_message_ = "Table not found: " + stmt->table_name;
+        error_message_ = "Table not found: " + actual_table;
         return nullptr;
     }
-    result->table_name = stmt->table_name;
+    result->table_name = actual_table;
     result->table_schema = &table_info->schema;
 
     const Schema* schema = result->table_schema;
@@ -486,12 +497,13 @@ std::unique_ptr<BoundUpdateStmt> Binder::BindUpdate(UpdateStatement* stmt) {
 std::unique_ptr<BoundDeleteStmt> Binder::BindDelete(DeleteStatement* stmt) {
     auto result = std::make_unique<BoundDeleteStmt>();
 
-    TableInfo* table_info = catalog_->GetTable(stmt->table_name);
+    std::string actual_table = ResolveTableName(stmt->table_name);
+    TableInfo* table_info = catalog_->GetTable(actual_table);
     if (!table_info) {
-        error_message_ = "Table not found: " + stmt->table_name;
+        error_message_ = "Table not found: " + actual_table;
         return nullptr;
     }
-    result->table_name = stmt->table_name;
+    result->table_name = actual_table;
     result->table_schema = &table_info->schema;
 
     if (stmt->where_clause) {
@@ -545,14 +557,15 @@ std::unique_ptr<BoundCreateIndexStmt> Binder::BindCreateIndex(
     CreateIndexStatement* stmt) {
     auto result = std::make_unique<BoundCreateIndexStmt>();
 
-    TableInfo* table_info = catalog_->GetTable(stmt->table_name);
+    std::string actual_table = ResolveTableName(stmt->table_name);
+    TableInfo* table_info = catalog_->GetTable(actual_table);
     if (!table_info) {
-        error_message_ = "Table not found: " + stmt->table_name;
+        error_message_ = "Table not found: " + actual_table;
         return nullptr;
     }
 
     result->index_name = stmt->index_name;
-    result->table_name = stmt->table_name;
+    result->table_name = actual_table;
     result->table_schema = &table_info->schema;
     result->index_type = stmt->index_type.empty() ? "btree" : stmt->index_type;
     result->is_unique = stmt->is_unique;
@@ -752,6 +765,15 @@ TypeId Binder::DeriveUnaryOpType(const std::string& op, TypeId operand_type) {
 bool Binder::IsAggregate(const std::string& name) {
     return name == "COUNT" || name == "SUM" || name == "AVG" ||
            name == "MAX" || name == "MIN" || name == "COUNT_DISTINCT";
+}
+
+std::string Binder::ResolveTableName(const std::string& qualified_name) {
+    size_t dot = qualified_name.find('.');
+    if (dot != std::string::npos) {
+        // Strip db prefix — table name is everything after the last '.'
+        return qualified_name.substr(dot + 1);
+    }
+    return qualified_name;
 }
 
 }  // namespace goods_db

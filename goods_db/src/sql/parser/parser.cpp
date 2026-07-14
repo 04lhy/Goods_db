@@ -1057,7 +1057,14 @@ DataType Parser::TranslateTypeName(void* pg_type_name) {
     std::string type_name;
 
     if (tn->names != nullptr && list_length(tn->names) > 0) {
-        type_name = GetStringFromValue(linitial(tn->names));
+        // Use the LAST element (unqualified type name).
+        // libpg_query may return schema-qualified names like "pg_catalog.int4".
+        type_name = GetStringFromValue(llast(tn->names));
+    }
+
+    // Normalize to uppercase for case-insensitive matching
+    for (auto& c : type_name) {
+        c = static_cast<char>(toupper(static_cast<unsigned char>(c)));
     }
 
     // Get type modifier (e.g., length for VARCHAR(n))

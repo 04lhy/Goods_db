@@ -115,9 +115,13 @@ std::unique_ptr<SeqScanPlanNode> Planner::MakeSeqScan(
 std::unique_ptr<PlanNode> Planner::PlanSelect(BoundSelectStmt* stmt) {
     std::unique_ptr<PlanNode> root;
 
-    // 1. SeqScan
-    auto seq_scan = MakeSeqScan(stmt->table_name, stmt->table_schema);
-    root = std::move(seq_scan);
+    // 1. SeqScan (only when there's a FROM clause)
+    if (!stmt->table_name.empty() && stmt->table_schema) {
+        auto seq_scan = MakeSeqScan(stmt->table_name, stmt->table_schema);
+        root = std::move(seq_scan);
+    }
+    // If no FROM clause (e.g. SELECT 1), root stays null — Projection
+    // will produce a single row from constant expressions directly.
 
     // 2. Filter (WHERE)
     if (stmt->where_clause) {
@@ -125,7 +129,9 @@ std::unique_ptr<PlanNode> Planner::PlanSelect(BoundSelectStmt* stmt) {
         filter->predicate = std::move(stmt->where_clause);
         filter->SetOutputSchema(stmt->table_schema ? *stmt->table_schema
                                                      : Schema());
-        filter->GetChildren().push_back(std::move(root));
+        if (root) {
+            filter->GetChildren().push_back(std::move(root));
+        }
         root = std::move(filter);
     }
 
@@ -156,7 +162,7 @@ std::unique_ptr<PlanNode> Planner::PlanSelect(BoundSelectStmt* stmt) {
     }
 
     // Build output schema for projection
-    if (stmt->table_schema) {
+    {
         std::vector<Column> out_cols;
         for (auto& expr : proj->expressions) {
             Column col;
@@ -173,7 +179,9 @@ std::unique_ptr<PlanNode> Planner::PlanSelect(BoundSelectStmt* stmt) {
         proj->SetOutputSchema(Schema(std::move(out_cols)));
     }
 
-    proj->GetChildren().push_back(std::move(root));
+    if (root) {
+        proj->GetChildren().push_back(std::move(root));
+    }
     root = std::move(proj);
 
     // 4. Sort (ORDER BY) — for now, just acknowledge it
