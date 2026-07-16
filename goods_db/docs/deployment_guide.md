@@ -1,7 +1,8 @@
 # goods_db 服务器部署指南
 
-> **版本**: goods_db v0.1.0  
-> **适用环境**: Ubuntu 24.04 / Docker
+> **版本**: goods_db v1.2.2  
+> **适用环境**: Ubuntu 22.04+ / Docker  
+> **最后更新**: 2026-07-16
 
 ---
 
@@ -24,19 +25,30 @@
 ### 1. 编译
 
 ```bash
-cd goods_db/build
+# 服务端
+mkdir -p goods_db/build && cd goods_db/build
 cmake .. -DCMAKE_BUILD_TYPE=Release
-make -j$(nproc)
+cmake --build . -j$(nproc)
+
+# 桌面客户端 + Web 前端
+mkdir -p goods_db_studio/build && cd goods_db_studio/build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+cmake --build . -j$(nproc)
 ```
 
 编译产物：
-- `src/sql/goods_db_server` — 数据库服务器
-- `src/sql/binlog/goods_db_binlog` — binlog 解析工具
+- `goods_db/build/src/sql/goods_db_server` — 数据库服务器
+- `goods_db/build/tools/goods_db_admin` — 命令行管理工具
+- `goods_db/build/tools/goods_db_dump` — 数据导出工具
+- `goods_db_studio/build/goods_db_web` — Web 前端服务器
+- `goods_db_studio/build/goods_db_studio` — 桌面客户端
 
 ### 2. 启动服务器
 
 ```bash
-./goods_db_server --port 3307 --datadir ./data
+cd goods_db/build
+rm -rf ./data
+./src/sql/goods_db_server --port 3307
 ```
 
 ### 3. 连接测试

@@ -68,6 +68,8 @@ class ApiHandler {
     std::string name;
     std::string type_name;
     int length = 0;
+    bool nullable = true;
+    bool is_primary_key = false;
   };
 
   std::vector<std::string> GetDatabases();

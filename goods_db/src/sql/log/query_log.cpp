@@ -66,6 +66,26 @@ void QueryLog::LogQuery(const std::string& user, const std::string& host,
        << sql << "\n";
 
   std::lock_guard<std::mutex> lock(mutex_);
+
+  // Append to ring buffer
+  {
+    QueryEntry entry;
+    entry.timestamp = std::string(time_buf);
+    entry.user = user;
+    entry.host = host;
+    entry.database = database.empty() ? "(none)" : database;
+    entry.exec_time_ms = exec_time_ms;
+    entry.rows_affected = rows_affected;
+    entry.sql = sql;
+
+    if (ring_buffer_.size() < kRingBufferSize) {
+      ring_buffer_.push_back(std::move(entry));
+    } else {
+      ring_buffer_[ring_pos_] = std::move(entry);
+      ring_pos_ = (ring_pos_ + 1) % kRingBufferSize;
+    }
+  }
+
   if (!file_.is_open()) {
     return;
   }
@@ -74,6 +94,27 @@ void QueryLog::LogQuery(const std::string& user, const std::string& host,
   file_ << line_str;
   file_.flush();
   current_size_ += line_str.size();
+}
+
+std::vector<QueryLog::QueryEntry> QueryLog::GetRecentEntries(
+    size_t max_count) const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  std::vector<QueryEntry> result;
+  size_t total = ring_buffer_.size();
+  size_t count = std::min(max_count, total);
+  result.reserve(count);
+
+  if (total <= kRingBufferSize) {
+    // Ring hasn't wrapped yet — entries are in linear order
+    size_t start = total > count ? total - count : 0;
+    for (size_t i = start; i < total; i++)
+      result.push_back(ring_buffer_[i]);
+  } else {
+    // Ring has wrapped — start from ring_pos_ (oldest entry)
+    for (size_t i = 0; i < count; i++)
+      result.push_back(ring_buffer_[(ring_pos_ + i) % kRingBufferSize]);
+  }
+  return result;
 }
 
 void QueryLog::Rotate() {

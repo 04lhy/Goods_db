@@ -53,20 +53,44 @@ void WebServer::SetupRoutes() {
         }
       }
       if (end >= req.body.size()) return "";
-      // Unescape
+      // Unescape (handle \", \\, \n, \r, \t, \uXXXX)
       std::string raw = req.body.substr(pos + 1, end - pos - 1);
       std::string out;
       for (size_t i = 0; i < raw.size(); i++) {
         if (raw[i] == '\\' && i + 1 < raw.size()) {
-          switch (raw[i + 1]) {
-            case '"':  out += '"';  break;
-            case '\\': out += '\\'; break;
-            case 'n':  out += '\n'; break;
-            case 'r':  out += '\r'; break;
-            case 't':  out += '\t'; break;
-            default:   out += raw[i]; out += raw[i + 1]; break;
+          if (raw[i + 1] == 'u' && i + 5 < raw.size()) {
+            uint16_t cp = 0;
+            for (int j = 0; j < 4; j++) {
+              char c = raw[i + 2 + j];
+              cp <<= 4;
+              if (c >= '0' && c <= '9') cp += (c - '0');
+              else if (c >= 'a' && c <= 'f') cp += (c - 'a' + 10);
+              else if (c >= 'A' && c <= 'F') cp += (c - 'A' + 10);
+              else { cp = 0; break; }
+            }
+            if (cp != 0) {
+              if (cp < 0x80) { out += static_cast<char>(cp); }
+              else if (cp < 0x800) {
+                out += static_cast<char>(0xC0 | (cp >> 6));
+                out += static_cast<char>(0x80 | (cp & 0x3F));
+              } else {
+                out += static_cast<char>(0xE0 | (cp >> 12));
+                out += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+                out += static_cast<char>(0x80 | (cp & 0x3F));
+              }
+            }
+            i += 5;
+          } else {
+            switch (raw[i + 1]) {
+              case '"':  out += '"';  break;
+              case '\\': out += '\\'; break;
+              case 'n':  out += '\n'; break;
+              case 'r':  out += '\r'; break;
+              case 't':  out += '\t'; break;
+              default:   out += raw[i]; out += raw[i + 1]; break;
+            }
+            i++;
           }
-          i++;
         } else {
           out += raw[i];
         }
@@ -139,19 +163,44 @@ void WebServer::SetupRoutes() {
           }
         }
         if (end < req.body.size()) {
-          // Unescape the SQL string (handle \", \\, \n, \r, \t)
+          // Unescape the SQL string (handle \", \\, \n, \r, \t, \uXXXX)
           std::string raw = req.body.substr(pos + 1, end - pos - 1);
           for (size_t i = 0; i < raw.size(); i++) {
             if (raw[i] == '\\' && i + 1 < raw.size()) {
-              switch (raw[i + 1]) {
-                case '"':  sql += '"';  break;
-                case '\\': sql += '\\'; break;
-                case 'n':  sql += '\n'; break;
-                case 'r':  sql += '\r'; break;
-                case 't':  sql += '\t'; break;
-                default:   sql += raw[i]; sql += raw[i + 1]; break;
+              if (raw[i + 1] == 'u' && i + 5 < raw.size()) {
+                // Decode \uXXXX Unicode escape → UTF-8
+                uint16_t cp = 0;
+                for (int j = 0; j < 4; j++) {
+                  char c = raw[i + 2 + j];
+                  cp <<= 4;
+                  if (c >= '0' && c <= '9') cp += (c - '0');
+                  else if (c >= 'a' && c <= 'f') cp += (c - 'a' + 10);
+                  else if (c >= 'A' && c <= 'F') cp += (c - 'A' + 10);
+                  else { cp = 0; break; }
+                }
+                if (cp != 0) {
+                  if (cp < 0x80) { sql += static_cast<char>(cp); }
+                  else if (cp < 0x800) {
+                    sql += static_cast<char>(0xC0 | (cp >> 6));
+                    sql += static_cast<char>(0x80 | (cp & 0x3F));
+                  } else {
+                    sql += static_cast<char>(0xE0 | (cp >> 12));
+                    sql += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+                    sql += static_cast<char>(0x80 | (cp & 0x3F));
+                  }
+                }
+                i += 5;
+              } else {
+                switch (raw[i + 1]) {
+                  case '"':  sql += '"';  break;
+                  case '\\': sql += '\\'; break;
+                  case 'n':  sql += '\n'; break;
+                  case 'r':  sql += '\r'; break;
+                  case 't':  sql += '\t'; break;
+                  default:   sql += raw[i]; sql += raw[i + 1]; break;
+                }
+                i++;
               }
-              i++;
             } else {
               sql += raw[i];
             }

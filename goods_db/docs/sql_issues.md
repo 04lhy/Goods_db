@@ -1,8 +1,8 @@
-# goods_db SQL 解析器问题跟踪
+# goods_db 已知问题跟踪
 
 > **整理时间**：2026/07/13  
-> **最后更新**：2026/07/14（Phase 3 Hotfix 完成后复核）  
-> **状态**：P0/P1 问题已在 Phase 3 Hotfix 中全部修复，剩余 P2 问题及长期优化项可供后续参考。
+> **最后更新**：2026/07/16（Phase 4 Hotfix 4 完成后复核 — 新增级联删除）  
+> **状态**：P0/P1 已全部修复，已实现外键级联删除，剩余 P2 问题及长期优化项可供后续参考。
 
 ---
 
@@ -66,6 +66,62 @@ SQL 文本 → execution_engine.cpp (预检查 SHOW/DESCRIBE/CREATE DATABASE 等
 
 ---
 
+## ✅ 已修复（Phase 4 Hotfix 2 — 2026/07/15）
+
+### P0-13 ✅ INSERT 不指定主键默认填 0 {#p0-13}
+
+**修复**：InsertExecutor 增加主键自增逻辑（扫描全表取 `max(id)+1`），Tuple 序列化正确使用 null bitmap 标记 NULL 列。
+
+### P0-14 ✅ Parser 产 BIGINT 但列类型 INT 时值被丢弃 {#p0-14}
+
+**修复**：Tuple 序列化增加数值类型互转（BIGINT↔INT/SMALLINT/TINYINT/DECIMAL），修复跨类型匹配失败导致值变为 0 的 bug。
+
+### P1-15 ✅ TIMESTAMP 列 LIKE 匹配无效 {#p1-15}
+
+**修复**：`binder.cpp` 中 LIKE 的 `valueToRawString` 对 TIMESTAMP 用 `FormatTimestamp()` 返回可读日期字符串；`connection_handler.cpp` 改为 `StoreString` 发送格式化日期。
+
+### P1-16 ✅ 筛选数值列无效 {#p1-16}
+
+**修复**：前端 `buildSelectSQL` 改为类型感知——数值列用 `=` 精确匹配，文本列用 `LIKE` 模糊匹配。
+
+### P2-17 ✅ 中文数据乱码 {#p2-17}
+
+**修复**：`setup_demo_data.sh` Python `json.dumps` 加 `ensure_ascii=False`；C++ 服务端 JSON 解析器加 `\uXXXX→UTF-8` 解码。
+
+### P0-21 ✅ 级联删除 — 删除父表行产生孤儿数据（Phase 4 Hotfix 4 — 2026/07/16）{#p0-21}
+
+**根因**：系统无外键/级联基础设施，DELETE 只删除目标表行，不检查子表引用。删除 `warehouses.id=1` 时，`inventory` 和 `shipments` 中的关联行成为孤儿数据。
+
+**修复**：
+- 新增 `ForeignKeyInfo` 结构体 + `FkAction` 枚举（CASCADE/RESTRICT/SET_NULL）
+- Catalog 新增 FK 注册/查询方法
+- DeleteExecutor 增加 Phase 3 递归级联删除（`CascadeDelete` 辅助函数）
+- 新增 `REGISTER_FK` 管理命令
+- demo 数据注册 7 对 FK 关系
+- 前端确认对话框展示级联删除警告
+
+**验证**：三级递归级联（parent→child→grandchild=1+2+2=5）✅
+
+### P2-18 ✅ Web 表格中文显示差 {#p2-18}
+
+**修复**：表格字体从 `var(--mono)`（无中文）改为 `var(--font)`（含 Noto Sans SC），全局居中对齐。
+
+### P0-20 ✅ IS NULL / IS NOT NULL 永远返回 FALSE（Phase 4 Hotfix 3 — 2026/07/16）{#p0-20}
+
+**根因**：[binder.cpp:273-275](goods_db/src/sql/binder/binder.cpp#L273-L275)：`BoundUnaryOp::Evaluate` 中 `if (val.GetTypeId() == TypeId::INVALID) return Value()` 在 `IS_NULL`/`IS_NOT_NULL` 检查之前执行。当列值为 NULL 时，函数提前返回 INVALID，导致 IS_NULL 永远无法返回 TRUE。IS_NULL 操作符的语义本身就是检测 NULL，NULL 输入是合法且预期的。
+
+**影响**：所有含 NULL 列的表的 WHERE IS NULL / IS NOT NULL 条件均不生效（warehouses.status、inventory.last_updated、shipments.arrive_date、customers.address/phone 等）。
+
+**修复**：将 IS_NULL/IS_NOT_NULL 两个分支移到 NULL 传播检查之前（3 行移动），因为这两个操作符专门用来检测 NULL，NULL 传播不适用于它们。
+
+### P0-19 ✅ UPDATE/DELETE 含 TIMESTAMP 列时 WHERE 匹配失败 {#p0-19}
+
+**根因**：`CoerceToCommonType` 只处理数值类型互转。TIMESTAMP 列（epoch 整数）与 VARCHAR 字面量（日期字符串）比较时，`Value::operator==` 因类型不同直接返回 false。
+
+**修复**：`CoerceToCommonType` 增加 TIMESTAMP↔VARCHAR（`ParseTimestamp`）和 TIMESTAMP↔INT 互转逻辑，三行代码覆盖 WHERE 子句所有日期比较场景。
+
+---
+
 ## 🟡 仍待完善
 
 ### 10. 聚合函数语义检查（原 P2-10）
@@ -102,5 +158,8 @@ SQL 文本 → execution_engine.cpp (预检查 SHOW/DESCRIBE/CREATE DATABASE 等
 
 | 时间 | 版本 | 修复内容 |
 |------|------|---------|
+| 2026/07/16 | Phase 4 Hotfix 4 | P0-21：级联删除（7 对 FK + 递归 cascade） |
+| 2026/07/16 | Phase 4 Hotfix 3 | P0-20：IS NULL/IS NOT NULL 永远返回 FALSE |
+| 2026/07/15 | Phase 4 Hotfix 2 | P0-13~14、P1-15~16、P2-17~18、P0-19 |
 | 2026/07/13 | Phase 3 Hotfix | P0-1~3、P1-4~7、P2-8~9,11 全部修复 |
 | 2026/07/10 | Phase 3 | 发现并整理全部 12 项问题 |

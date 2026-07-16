@@ -48,7 +48,7 @@ std::string ApiHandler::ToJson(const ExecuteResponse& resp) {
   for (size_t i = 0; i < resp.columns.size(); i++) {
     if (i > 0) js << ",";
     js << "{\"name\":\"" << JsonEscape(resp.columns[i].name) << "\""
-       << ",\"type\":\"" << JsonEscape(resp.columns[i].type_name) << "\""
+       << ",\"type_name\":\"" << JsonEscape(resp.columns[i].type_name) << "\""
        << ",\"length\":" << resp.columns[i].length << "}";
   }
   js << "]";
@@ -101,8 +101,10 @@ std::string ApiHandler::ToJson(const std::vector<ColumnInfo>& columns) {
   for (size_t i = 0; i < columns.size(); i++) {
     if (i > 0) js << ",";
     js << "{\"name\":\"" << JsonEscape(columns[i].name) << "\""
-       << ",\"type\":\"" << JsonEscape(columns[i].type_name) << "\""
-       << ",\"length\":" << columns[i].length << "}";
+       << ",\"type_name\":\"" << JsonEscape(columns[i].type_name) << "\""
+       << ",\"length\":" << columns[i].length
+       << ",\"nullable\":" << (columns[i].nullable ? "true" : "false")
+       << ",\"is_primary_key\":" << (columns[i].is_primary_key ? "true" : "false") << "}";
   }
   js << "]";
   return js.str();
@@ -243,7 +245,7 @@ std::vector<ApiHandler::TableInfo> ApiHandler::GetTables(const std::string& db) 
 std::vector<ApiHandler::ColumnInfo> ApiHandler::GetColumns(
     const std::string& db, const std::string& table) {
   auto resp = Execute("SHOW COLUMNS FROM `" + table + "`");
-  if (!resp.success || resp.columns.empty()) return {};
+  if (!resp.success || resp.rows.empty()) return {};
 
   std::vector<ColumnInfo> columns;
   for (const auto& row : resp.rows) {
@@ -252,6 +254,13 @@ std::vector<ApiHandler::ColumnInfo> ApiHandler::GetColumns(
       col.name = row[0];
       col.type_name = row[1];
       col.length = 0;
+      // row[2] = Null (YES/NO), row[3] = Key (PRI/UNI/MUL/"")
+      if (row.size() >= 3) {
+        col.nullable = (row[2] == "YES");
+      }
+      if (row.size() >= 4) {
+        col.is_primary_key = (row[3] == "PRI");
+      }
       columns.push_back(col);
     }
   }

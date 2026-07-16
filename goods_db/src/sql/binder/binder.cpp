@@ -100,6 +100,10 @@ static void CoerceToCommonType(Value& lv, Value& rv) {
                t == TypeId::INTEGER || t == TypeId::BIGINT ||
                t == TypeId::DECIMAL;
     };
+    auto is_integer = [](TypeId t) {
+        return t == TypeId::TINYINT || t == TypeId::SMALLINT ||
+               t == TypeId::INTEGER || t == TypeId::BIGINT;
+    };
 
     if (is_numeric(lt) && is_numeric(rt)) {
         // Promote to DECIMAL if either is DECIMAL, else BIGINT
@@ -143,6 +147,44 @@ static void CoerceToCommonType(Value& lv, Value& rv) {
             lv = Value::CreateBigInt(li);
             rv = Value::CreateBigInt(ri);
         }
+        return;
+    }
+
+    // TIMESTAMP ↔ VARCHAR: parse the string as a date
+    if ((lt == TypeId::TIMESTAMP && rt == TypeId::VARCHAR) ||
+        (lt == TypeId::VARCHAR && rt == TypeId::TIMESTAMP)) {
+        if (lt == TypeId::TIMESTAMP) {
+            rv = Value::CreateTimestamp(Value::ParseTimestamp(rv.GetAsVarchar()));
+        } else {
+            lv = Value::CreateTimestamp(Value::ParseTimestamp(lv.GetAsVarchar()));
+        }
+        return;
+    }
+
+    // TIMESTAMP ↔ integer: treat integer as epoch seconds
+    if (lt == TypeId::TIMESTAMP && is_integer(rt)) {
+        int64_t epoch = 0;
+        switch (rt) {
+            case TypeId::TINYINT:  epoch = rv.GetAsTinyInt(); break;
+            case TypeId::SMALLINT: epoch = rv.GetAsSmallInt(); break;
+            case TypeId::INTEGER:  epoch = rv.GetAsInteger(); break;
+            case TypeId::BIGINT:   epoch = rv.GetAsBigInt(); break;
+            default: break;
+        }
+        rv = Value::CreateTimestamp(epoch);
+        return;
+    }
+    if (is_integer(lt) && rt == TypeId::TIMESTAMP) {
+        int64_t epoch = 0;
+        switch (lt) {
+            case TypeId::TINYINT:  epoch = lv.GetAsTinyInt(); break;
+            case TypeId::SMALLINT: epoch = lv.GetAsSmallInt(); break;
+            case TypeId::INTEGER:  epoch = lv.GetAsInteger(); break;
+            case TypeId::BIGINT:   epoch = lv.GetAsBigInt(); break;
+            default: break;
+        }
+        lv = Value::CreateTimestamp(epoch);
+        return;
     }
 }
 
@@ -168,8 +210,23 @@ Value BoundComparison::Evaluate(const Tuple* tuple, const Schema* schema) const 
 
     // LIKE operator (simple substring match)
     if (op == "~~" || op == "LIKE" || op == "like") {
-        auto lstr = lv.ToString();
-        auto rstr = rv.ToString();
+        // Convert values to raw strings WITHOUT decoration (ToString adds
+        // quotes around VARCHAR, which would corrupt LIKE pattern matching).
+        auto valueToRawString = [](const Value& v) -> std::string {
+            switch (v.GetTypeId()) {
+                case TypeId::VARCHAR:   return v.GetAsVarchar();
+                case TypeId::TINYINT:   return std::to_string(v.GetAsTinyInt());
+                case TypeId::SMALLINT:  return std::to_string(v.GetAsSmallInt());
+                case TypeId::INTEGER:   return std::to_string(v.GetAsInteger());
+                case TypeId::BIGINT:    return std::to_string(v.GetAsBigInt());
+                case TypeId::DECIMAL:   return std::to_string(v.GetAsDecimal());
+                case TypeId::BOOLEAN:   return v.GetAsBoolean() ? "true" : "false";
+                case TypeId::TIMESTAMP: return Value::FormatTimestamp(v.GetAsTimestamp());
+                default:                return v.ToString();
+            }
+        };
+        auto lstr = valueToRawString(lv);
+        auto rstr = valueToRawString(rv);
         // Simple pattern: strip % wildcards and check substring
         std::string pattern = rstr;
         bool prefix = false, suffix = false;
@@ -191,6 +248,17 @@ std::string BoundComparison::ToString() const {
 
 Value BoundUnaryOp::Evaluate(const Tuple* tuple, const Schema* schema) const {
     auto val = operand->Evaluate(tuple, schema);
+
+    // IS_NULL / IS_NOT_NULL must be checked BEFORE NULL propagation:
+    // they test whether the operand IS NULL, so NULL input is valid.
+    if (op == "IS_NULL") {
+        return Value::CreateBoolean(val.GetTypeId() == TypeId::INVALID);
+    }
+    if (op == "IS_NOT_NULL") {
+        return Value::CreateBoolean(val.GetTypeId() != TypeId::INVALID);
+    }
+
+    // NULL propagation for all other unary operators
     if (val.GetTypeId() == TypeId::INVALID) return Value();
 
     if (op == "NOT") {
@@ -205,12 +273,6 @@ Value BoundUnaryOp::Evaluate(const Tuple* tuple, const Schema* schema) const {
             case TypeId::DECIMAL:  return Value::CreateDecimal(-val.GetAsDecimal());
             default: return Value();
         }
-    }
-    if (op == "IS_NULL") {
-        return Value::CreateBoolean(val.GetTypeId() == TypeId::INVALID);
-    }
-    if (op == "IS_NOT_NULL") {
-        return Value::CreateBoolean(val.GetTypeId() != TypeId::INVALID);
     }
     return Value();
 }
@@ -531,6 +593,7 @@ std::unique_ptr<BoundCreateStmt> Binder::BindCreate(CreateStatement* stmt) {
         col.column_type = col_def.data_type.ToTypeId();
         col.max_length = col_def.data_type.length;
         col.is_nullable = col_def.is_nullable;
+        col.is_primary_key = col_def.is_primary_key;
         columns.push_back(std::move(col));
     }
     result->schema = Schema(std::move(columns));

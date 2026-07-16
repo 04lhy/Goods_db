@@ -1,5 +1,6 @@
 #include "type/value.h"
 #include <cassert>
+#include <cstdio>
 #include <cstring>
 #include <stdexcept>
 #include "common/logger.h"
@@ -54,6 +55,78 @@ Value Value::CreateTimestamp(int64_t val) {
     v.type_id_ = TypeId::TIMESTAMP;
     v.data_.timestamp = val;
     return v;
+}
+
+int64_t Value::ParseTimestamp(const std::string& str) {
+    // Parse "YYYY-MM-DD HH:MM:SS" or "YYYY-MM-DD HH:MM:SS.xxx"
+    // Returns seconds since epoch (1970-01-01 00:00:00)
+    if (str.empty()) return 0;
+    int year = 0, month = 1, day = 1, hour = 0, minute = 0, second = 0;
+    sscanf(str.c_str(), "%d-%d-%d %d:%d:%d",
+           &year, &month, &day, &hour, &minute, &second);
+    if (year < 1970) return 0;
+    // Simple epoch conversion (valid for years 1970-2099)
+    static const int days_before_month[] = {
+        0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334
+    };
+    auto is_leap = [](int y) { return (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0); };
+    int64_t days = 0;
+    for (int y = 1970; y < year; y++) days += is_leap(y) ? 366 : 365;
+    days += days_before_month[month - 1];
+    if (month > 2 && is_leap(year)) days++;
+    days += (day - 1);
+    return days * 86400 + hour * 3600 + minute * 60 + second;
+}
+
+std::string Value::FormatTimestamp(int64_t epoch) {
+    if (epoch <= 0) return "1970-01-01 00:00:00";
+    static const int days_before_month[] = {
+        0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334
+    };
+    auto is_leap = [](int y) { return (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0); };
+
+    int64_t remaining = epoch;
+    int second = remaining % 60; remaining /= 60;
+    int minute = remaining % 60; remaining /= 60;
+    int hour   = remaining % 24; remaining /= 24;
+    int64_t days = remaining;
+
+    int year = 1970;
+    while (true) {
+        int days_in_year = is_leap(year) ? 366 : 365;
+        if (days < days_in_year) break;
+        days -= days_in_year;
+        year++;
+    }
+
+    int month = 1;
+    while (month <= 12) {
+        int days_in_month = days_before_month[month - 1];
+        if (month == 2 && is_leap(year)) days_in_month = 60;  // Feb in leap year
+        int next_month_days = (month < 12) ? days_before_month[month] : 0;
+        if (month == 1 && is_leap(year)) next_month_days = 60;
+        if (month == 2 && is_leap(year)) {
+            next_month_days = 62;  // March starts at 61 in leap year
+        }
+        int dim = (month < 12) ? (days_before_month[month] +
+            (month == 2 && is_leap(year) ? 1 : 0) +
+            (month == 1 && is_leap(year) ? 0 : 0)) : 0;
+        // Simpler: just compute month length
+        int mlen;
+        if (month == 2) mlen = is_leap(year) ? 29 : 28;
+        else if (month == 4 || month == 6 || month == 9 || month == 11) mlen = 30;
+        else mlen = 31;
+        if (days < mlen) break;
+        days -= mlen;
+        month++;
+    }
+
+    int day = static_cast<int>(days) + 1;
+
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d:%02d",
+             year, month, day, hour, minute, second);
+    return std::string(buf);
 }
 
 Value Value::CreateVarchar(const std::string& val) {
@@ -186,7 +259,7 @@ std::string Value::ToString() const {
         case TypeId::INTEGER: return std::to_string(data_.integer);
         case TypeId::BIGINT: return std::to_string(data_.bigint);
         case TypeId::DECIMAL: return std::to_string(data_.decimal);
-        case TypeId::TIMESTAMP: return std::to_string(data_.timestamp);
+        case TypeId::TIMESTAMP: return "'" + FormatTimestamp(data_.timestamp) + "'";
         case TypeId::VARCHAR: return "'" + varchar_data_ + "'";
     }
     return "?";

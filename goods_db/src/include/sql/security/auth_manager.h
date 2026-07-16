@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -10,6 +11,9 @@ namespace goods_db {
 
 class Catalog;
 class BufferPoolManager;
+class DiskManager;
+class TableHeap;
+class Schema;
 
 // =============================================================================
 // Privilege flags (bitmask)
@@ -66,8 +70,8 @@ class AuthManager {
   AuthManager() = default;
   ~AuthManager() = default;
 
-  void Initialize(Catalog* catalog = nullptr,
-                  BufferPoolManager* bpm = nullptr);
+  void Initialize(Catalog* catalog, BufferPoolManager* bpm,
+                  DiskManager* dm, const std::string& data_dir);
   bool IsInitialized() const { return initialized_; }
 
   // ---- Authentication ------------------------------------------------------
@@ -102,8 +106,9 @@ class AuthManager {
   // ---- Host blocking -------------------------------------------------------
   void RecordAuthFailure(const std::string& host);
   bool IsHostBlocked(const std::string& host);
+  void ClearBlockList();
 
- private:
+  // ---- Public accessors for admin commands ---------------------------------
   struct UserRecord {
     std::string host;
     std::string user;
@@ -119,6 +124,10 @@ class AuthManager {
     uint32_t privileges = 0;
   };
 
+  std::vector<UserRecord> GetUsers() const;
+  std::vector<PrivRecord> GetPrivileges() const;
+
+ private:
   struct BlockEntry {
     std::string host;
     int failure_count = 0;
@@ -127,7 +136,20 @@ class AuthManager {
 
   Catalog* catalog_ = nullptr;
   BufferPoolManager* bpm_ = nullptr;
+  DiskManager* dm_ = nullptr;
+  std::string data_dir_;
   bool initialized_ = false;
+
+  // System table storage
+  std::unique_ptr<Schema> user_schema_;
+  std::unique_ptr<Schema> db_schema_;
+  std::unique_ptr<Schema> tables_priv_schema_;
+  std::unique_ptr<TableHeap> user_table_;
+  std::unique_ptr<TableHeap> db_table_;
+  std::unique_ptr<TableHeap> tables_priv_table_;
+  uint16_t user_file_id_ = 0;
+  uint16_t db_file_id_ = 0;
+  uint16_t tables_priv_file_id_ = 0;
 
   // In-memory caches
   std::vector<UserRecord> user_cache_;
@@ -144,9 +166,19 @@ class AuthManager {
                                   const std::string& salt);
   static std::string Sha256(const std::string& data);
 
+  // System table management
+  bool OpenSystemTables();
+  void CreateSystemTables();
+  void CreateDefaultUsers();
+
   // Cache helpers
   void LoadUserCache();
   void LoadPrivCache();
+  void PersistUser(const UserRecord& rec);
+  void RemoveUserFromTable(const std::string& user, const std::string& host);
+  void PersistPriv(const PrivRecord& rec);
+  void RemovePrivFromTable(const std::string& user, const std::string& host,
+                           const std::string& db, const std::string& table);
   const UserRecord* FindUser(const std::string& user,
                              const std::string& host) const;
   const PrivRecord* FindBestMatch(const std::string& user,

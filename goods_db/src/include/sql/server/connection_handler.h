@@ -1,7 +1,9 @@
 #pragma once
 
 #include <atomic>
+#include <map>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -18,6 +20,9 @@ class ExecutionEngine;
 
 // =============================================================================
 // ConnectionHandler — manages the full lifecycle of one client connection
+//
+// Each handler registers itself in a global registry on construction and
+// deregisters on destruction, enabling SHOW PROCESSLIST and KILL commands.
 // =============================================================================
 class ConnectionHandler {
  public:
@@ -30,6 +35,16 @@ class ConnectionHandler {
   void Run();
   void Stop();
 
+  // ---- Accessors for SHOW PROCESSLIST ---------------------------------------
+  uint32_t GetConnectionId() const { return conn_id_; }
+  Connection* GetConnection() const { return connection_.get(); }
+  const std::string& GetCurrentQuery() const { return current_query_; }
+
+  // ---- Global connection registry -------------------------------------------
+  using RegistryMap = std::map<uint32_t, ConnectionHandler*>;
+  static RegistryMap& GetRegistry();
+  static std::mutex& GetRegistryMutex();
+
  private:
   std::unique_ptr<Connection> connection_;
   class goods_handler* engine_;
@@ -38,6 +53,10 @@ class ConnectionHandler {
   LockManager* lock_mgr_;
   ExecutionEngine* exec_engine_;
   std::atomic<bool> running_{true};
+
+  static std::atomic<uint32_t> next_conn_id_;
+  uint32_t conn_id_ = 0;
+  std::string current_query_;  // currently executing SQL, for SHOW PROCESSLIST
 
   bool SendHandshake();
   bool HandleAuth();

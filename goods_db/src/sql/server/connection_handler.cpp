@@ -17,6 +17,19 @@
 
 namespace goods_db {
 
+// ---- Global connection registry ---------------------------------------------
+
+static std::map<uint32_t, ConnectionHandler*> g_connection_registry;
+static std::mutex g_registry_mutex;
+std::atomic<uint32_t> ConnectionHandler::next_conn_id_{1};
+
+ConnectionHandler::RegistryMap& ConnectionHandler::GetRegistry() {
+  return g_connection_registry;
+}
+std::mutex& ConnectionHandler::GetRegistryMutex() {
+  return g_registry_mutex;
+}
+
 ConnectionHandler::ConnectionHandler(int client_fd,
                                      const std::string& remote_addr,
                                      uint16_t remote_port,
@@ -32,9 +45,20 @@ ConnectionHandler::ConnectionHandler(int client_fd,
       exec_engine_(exec_engine) {
   connection_ = std::make_unique<Connection>(client_fd, remote_addr,
                                               remote_port);
+  // Register in global registry for SHOW PROCESSLIST / KILL
+  conn_id_ = next_conn_id_.fetch_add(1);
+  {
+    std::lock_guard<std::mutex> lock(g_registry_mutex);
+    g_connection_registry[conn_id_] = this;
+  }
 }
 
 ConnectionHandler::~ConnectionHandler() {
+  // Deregister from global registry
+  {
+    std::lock_guard<std::mutex> lock(g_registry_mutex);
+    g_connection_registry.erase(conn_id_);
+  }
   if (connection_) {
     connection_->Close();
   }
@@ -149,6 +173,7 @@ bool ConnectionHandler::HandleAuth() {
 
 bool ConnectionHandler::HandleQuery(const std::string& sql) {
   connection_->SetState(Connection::State::QUERYING);
+  current_query_ = sql;  // expose for SHOW PROCESSLIST
 
   // Log the query for debugging
   if (log_mgr_) {
@@ -171,6 +196,10 @@ bool ConnectionHandler::HandleQuery(const std::string& sql) {
     connection_->SetState(Connection::State::READY);
     return true;
   }
+
+  // ---- Set current user context for permission enforcement ---------------
+  exec_engine_->SetCurrentUser(connection_->GetUser(),
+                                connection_->GetRemoteAddr());
 
   // ---- Execute SQL via ExecutionEngine -----------------------------------
   try {
@@ -224,9 +253,11 @@ bool ConnectionHandler::HandleQuery(const std::string& sql) {
             case TypeId::DECIMAL:
               proto->StoreFloat(val.GetAsDecimal());
               break;
-            case TypeId::TIMESTAMP:
-              proto->StoreInteger(val.GetAsTimestamp());
+            case TypeId::TIMESTAMP: {
+              std::string ts_str = Value::FormatTimestamp(val.GetAsTimestamp());
+              proto->StoreString(ts_str.c_str(), ts_str.size());
               break;
+            }
             case TypeId::VARCHAR: {
               const std::string& s = val.GetAsVarchar();
               proto->StoreString(s.c_str(), s.size());
@@ -253,6 +284,7 @@ bool ConnectionHandler::HandleQuery(const std::string& sql) {
     proto->SendError(5000, "HY000", std::string("Internal error: ") + e.what());
     proto->Flush();
   }
+  current_query_.clear();
   connection_->SetState(Connection::State::READY);
   return true;
 }

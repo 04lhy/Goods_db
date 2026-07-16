@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(goods_db_studio VERSION 0.1.0 LANGUAGES CXX)
+project(goods_db_studio VERSION 1.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -65,6 +65,12 @@ if(Qt6_FOUND)
         src/object_tree/object_tree_model.cpp
         src/object_tree/object_tree_widget.cpp
         src/object_tree/table_info_panel.cpp
+        src/ui/admin_panel.cpp
+        src/ui/backup_wizard.cpp
+        src/ui/log_viewer.cpp
+        src/ui/login_dialog.cpp
+        src/ui/user_manager.cpp
+        src/ui/welcome_widget.cpp
     )
 
     set(STUDIO_HEADERS
@@ -85,6 +91,12 @@ if(Qt6_FOUND)
         src/object_tree/object_tree_model.h
         src/object_tree/object_tree_widget.h
         src/object_tree/table_info_panel.h
+        src/ui/admin_panel.h
+        src/ui/backup_wizard.h
+        src/ui/log_viewer.h
+        src/ui/login_dialog.h
+        src/ui/user_manager.h
+        src/ui/welcome_widget.h
     )
 
     set(STUDIO_RESOURCES resources/resources.qrc)

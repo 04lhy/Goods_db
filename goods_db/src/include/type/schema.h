@@ -35,6 +35,7 @@ struct Column {
     TypeId column_type;
     uint32_t max_length;  // For VARCHAR only; 0 for fixed-length types
     bool is_nullable;
+    bool is_primary_key{false};  // Set during CREATE TABLE
 
     Column() : column_type(TypeId::INVALID), max_length(0), is_nullable(true) {}
 

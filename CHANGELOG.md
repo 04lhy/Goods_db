@@ -1,5 +1,117 @@
 # Changelog
 
+## [Phase 4 Hotfix 4] — 2026-07-16
+
+### 新增 (Added)
+- **级联删除 (CASCADE DELETE)**：删除父表行时自动级联删除所有子表关联行，支持多层递归
+  - 新增 `ForeignKeyInfo` 结构体 + `FkAction` 枚举（CASCADE / RESTRICT / SET_NULL）
+  - Catalog 新增 `RegisterForeignKey`、`GetChildRelations`、`GetAllForeignKeys` 方法
+  - DeleteExecutor 增加 Phase 3 递归级联删除逻辑
+  - 新增 `REGISTER_FK` 管理命令（格式：`REGISTER_FK parent.col child.col [CASCADE|RESTRICT]`）
+  - `setup_demo_data.sh` 自动注册 7 对 FK 关系
+  - Web 前端确认对话框展示级联删除警告
+
+### 级联关系（7 对）
+| 父表 | 子表 | 关联列 |
+|------|------|--------|
+| warehouses | inventory | id → warehouse_id |
+| warehouses | shipments | id → warehouse_id |
+| products | inventory | id → product_id |
+| products | order_items | id → product_id |
+| customers | orders | id → customer_id |
+| orders | order_items | id → order_id |
+| orders | shipments | id → order_id |
+
+### 修改文件（9 个）
+| 文件 | 修改 |
+|------|------|
+| `src/include/catalog/catalog.h` | 新增 `FkAction` + `ForeignKeyInfo` + Catalog FK 方法声明 |
+| `src/catalog/catalog.cpp` | 实现 FK 注册/查询方法 |
+| `src/sql/executor/executor_factory.cpp` | DeleteExecutor 增加递归级联删除 + `CascadeDelete` 辅助函数 |
+| `src/include/sql/executor/abstract_executor.h` | DeleteExecutor 增加 `plan_` 成员 |
+| `src/sql/executor/execution_engine.h` | 声明 `ExecuteRegisterFk` |
+| `src/sql/executor/execution_engine.cpp` | 路由 + 实现 `REGISTER_FK` 管理命令 |
+| `goods_db/scripts/setup_demo_data.sh` | Step 11 注册 7 对 FK 关系 |
+| `goods_db_studio/web/index.html` | 确认对话框展示级联删除信息 |
+| `CHANGELOG.md` | 本条目 |
+
+### 验证
+- **编译**：✅ 零错误
+- **单级级联**：DELETE warehouse(1) → 5 inventory + 3 shipments ✅
+- **递归级联**：DELETE customer(1001) → 3 orders + 6 order_items (depth 2) ✅
+- **三级级联**：DELETE parent → 2 child + 2 grandchild (depth 3) ✅
+
+---
+
+## [Phase 4 Hotfix 3] — 2026-07-16
+
+### 修复 (Fixed)
+- **IS NULL / IS NOT NULL 永远返回 FALSE**：`BoundUnaryOp::Evaluate` 中 NULL 传播检查 `if (val.GetTypeId() == TypeId::INVALID) return Value()` 在 `IS_NULL`/`IS_NOT_NULL` 检查之前执行。当列值为 NULL 时函数提前返回 INVALID，IS_NULL 永远不可能返回 TRUE。修复方法：将 IS_NULL/IS_NOT_NULL 检查移到 NULL 传播之前——因为这两个操作符本身就用来检测 NULL，NULL 输入是合法的。
+
+### 影响范围
+- 所有含 NULL 列的表的 DELETE/UPDATE/SELECT WHERE IS NULL 操作
+- warehouses 表（status 列未在 INSERT 中指定时为 NULL）
+- inventory 表（last_updated 列可为 NULL）
+- shipments 表（arrive_date 列可为 NULL）
+- customers 表（address/phone 列可为 NULL）
+
+### 修改文件（3 个）
+| 文件 | 修改 |
+|------|------|
+| `src/sql/binder/binder.cpp` | `BoundUnaryOp::Evaluate` 中 IS_NULL/IS_NOT_NULL 检查移到 NULL 传播之前 |
+| `src/sql/server/goods_db_main.cpp` | `new handlerton()` → `static` 变量，修复内存泄漏 |
+| `启动指令.md` | 新增启动/编译指令速查文档 |
+
+### 编译状态
+- **服务端**：✅ 编译零错误
+- **Web 前端**：✅ 无需重新编译
+
+---
+
+## [Phase 4 Hotfix 2] — 2026-07-15
+
+### 新增 (Added)
+- **主键自增**：INSERT 时主键留空自动分配 `max(id)+1`，前端表单显示"自动分配"提示
+- **null bitmap 支持**：Tuple 序列化正确使用 null bitmap 标记 NULL 列，不再静默转 0
+- **数值类型互转**：Tuple 序列化支持 BIGINT↔INT/SMALLINT/TINYINT/DECIMAL 互转，修复 Parser 产 BIGINT 但列类型为 INT 时值被丢弃的 bug
+- **Unicode 转义解码**：C++ 服务端 JSON 解析器支持 `\uXXXX→UTF-8` 转换
+- **NOT NULL 校验**：API `/api/columns` 返回 `nullable` + `is_primary_key`，前端表单标记必填字段
+
+### 修复 (Fixed)
+- **中文乱码**：`setup_demo_data.sh` Python `json.dumps` 加 `ensure_ascii=False`，服务端加 `\uXXXX` 解码
+- **筛选无效**：`buildSelectSQL` 改为类型感知（数值 `=` 精确匹配，文本 `LIKE` 模糊匹配）
+- **新增记录 id=0**：INSERT 不再过滤空值列，配合主键自增解决
+- **表格样式**：字体改为含中文的 `var(--font)`，全局居中对齐
+- **表格数据乱码**：`load_demo.sh` / `setup_demo_data.sh` 全部重写为真实电商数据（真实姓名、地址、商品名、SKU、快递单号、日期格式）
+- **TIMESTAMP LIKE 匹配**：`binder.cpp` 中 LIKE 的 `valueToRawString` 对 TIMESTAMP 使用 `FormatTimestamp()` 返回日期字符串
+- **TIMESTAMP 传输**：`connection_handler.cpp` 改为 `StoreString(FormatTimestamp(...))` 发送格式化日期
+- **编辑/删除不生效**：`CoerceToCommonType` 缺少 TIMESTAMP↔VARCHAR 互转，WHERE 子句含日期列时类型不匹配永远返回 false
+
+### 修改文件（15 个）
+| 文件 | 修改 |
+|------|------|
+| `src/include/type/schema.h` | Column 加 `is_primary_key` |
+| `src/include/type/value.h` | 加 `FormatTimestamp()` 声明 |
+| `src/type/value.cpp` | 实现 `FormatTimestamp()` + `ToString()` 用格式化日期 |
+| `src/storage/table/tuple.cpp` | null bitmap 读写 + 数值类型互转 |
+| `src/sql/binder/binder.cpp` | `is_primary_key` 传递 + LIKE 用 `FormatTimestamp` + **CoerceToCommonType 加 TIMESTAMP↔VARCHAR/INT 互转** |
+| `src/sql/server/connection_handler.cpp` | TIMESTAMP 用 `StoreString` 发送日期 |
+| `src/sql/executor/executor_factory.cpp` | InsertExecutor 主键自增 |
+| `goods_db_studio/src/server/api_handler.h` | ColumnInfo 加 `nullable` + `is_primary_key` |
+| `goods_db_studio/src/server/api_handler.cpp` | GetColumns 提取 Null/Key 字段 + ToJson 输出 |
+| `goods_db_studio/src/server/web_server.cpp` | JSON 解析加 `\uXXXX` 解码 |
+| `goods_db_studio/web/index.html` | 类型感知筛选 + 字体居中 + 表单校验 + 自增提示 |
+| `goods_db/scripts/setup_demo_data.sh` | 真实电商数据 + `ensure_ascii=False` |
+| `goods_db/scripts/load_demo.sh` | 完整重写为真实电商数据（~350 条） |
+| `goods_db/docs/web_demo_guide.md` | 同步数据说明和 SQL 示例 |
+
+### 编译状态
+- **服务端**：✅ 编译零错误
+- **Web 前端**：✅ 编译零错误
+- **全量测试**：✅ 编译通过
+
+---
+
 ## [Phase 3 Hotfix] — 2026-07-13
 
 ### 修复 (Fixed) — SQL 兼容性问题（参考 docs/sql_issues.md）

@@ -16,6 +16,22 @@ namespace goods_db {
 /** Default database name */
 constexpr const char* DEFAULT_DATABASE = "goods_db";
 
+// =============================================================================
+// Foreign Key Support
+// =============================================================================
+
+/** Action to take when a referenced row is deleted */
+enum class FkAction { CASCADE, RESTRICT, SET_NULL };
+
+/** Describes a foreign key relationship between two tables */
+struct ForeignKeyInfo {
+    std::string parent_table;   // referenced table (e.g. "warehouses")
+    std::string parent_column;  // referenced column (e.g. "id")
+    std::string child_table;    // referencing table (e.g. "inventory")
+    std::string child_column;   // referencing column (e.g. "warehouse_id")
+    FkAction on_delete{FkAction::CASCADE};
+};
+
 /**
  * Index information stored in the catalog.
  */
@@ -37,6 +53,7 @@ struct TableInfo {
     std::string file_path;
     page_id_t root_page_id{INVALID_PAGE_ID};  // first page of the table
     std::vector<IndexInfo> indexes;
+    std::vector<ForeignKeyInfo> foreign_keys;  // FK relations where this table is the parent
     std::unique_ptr<TableHeap> table_heap;
 };
 
@@ -160,6 +177,32 @@ public:
      * Drop an index.
      */
     bool DropIndex(const std::string& index_name);
+
+    // =========================================================================
+    // Foreign Key Operations
+    // =========================================================================
+
+    /**
+     * Register a foreign key relationship.
+     * Stored on the parent table's TableInfo.
+     */
+    bool RegisterForeignKey(const std::string& parent_table,
+                            const std::string& parent_column,
+                            const std::string& child_table,
+                            const std::string& child_column,
+                            FkAction on_delete = FkAction::CASCADE);
+
+    /**
+     * Get all child-table relationships for a given parent table.
+     * Returns FK infos where parent_table matches.
+     */
+    std::vector<ForeignKeyInfo> GetChildRelations(
+        const std::string& parent_table) const;
+
+    /**
+     * Get all registered foreign key relationships across all databases.
+     */
+    std::vector<ForeignKeyInfo> GetAllForeignKeys() const;
 
     // =========================================================================
     // Persistence

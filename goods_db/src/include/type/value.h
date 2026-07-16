@@ -29,6 +29,12 @@ public:
     static Value CreateTimestamp(int64_t val);
     static Value CreateVarchar(const std::string& val);
 
+    /** Parse "YYYY-MM-DD HH:MM:SS" string to int64_t epoch seconds */
+    static int64_t ParseTimestamp(const std::string& str);
+
+    /** Format int64_t epoch seconds to "YYYY-MM-DD HH:MM:SS" string */
+    static std::string FormatTimestamp(int64_t epoch);
+
     // Type accessor
     TypeId GetTypeId() const { return type_id_; }
 

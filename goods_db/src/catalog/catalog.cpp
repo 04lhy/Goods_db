@@ -294,6 +294,71 @@ bool Catalog::DropIndex(const std::string& index_name) {
 }
 
 // =============================================================================
+// Foreign Key Operations
+// =============================================================================
+
+bool Catalog::RegisterForeignKey(const std::string& parent_table,
+                                 const std::string& parent_column,
+                                 const std::string& child_table,
+                                 const std::string& child_column,
+                                 FkAction on_delete) {
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    ForeignKeyInfo fk;
+    fk.parent_table = parent_table;
+    fk.parent_column = parent_column;
+    fk.child_table = child_table;
+    fk.child_column = child_column;
+    fk.on_delete = on_delete;
+
+    // Store FK on the parent table's TableInfo
+    DatabaseInfo* db = GetOrCreateDefaultDB();
+    auto it = db->tables.find(NormalizeName(parent_table));
+    if (it == db->tables.end()) {
+        LOG_ERROR("RegisterForeignKey: parent table '{}' not found", parent_table);
+        return false;
+    }
+
+    it->second.foreign_keys.push_back(fk);
+    LOG_INFO("Catalog: registered FK — {}.{} → {}.{} (ON DELETE {})",
+             parent_table, parent_column, child_table, child_column,
+             on_delete == FkAction::CASCADE ? "CASCADE" :
+             on_delete == FkAction::RESTRICT ? "RESTRICT" : "SET NULL");
+    return true;
+}
+
+std::vector<ForeignKeyInfo> Catalog::GetChildRelations(
+    const std::string& parent_table) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<ForeignKeyInfo> result;
+
+    for (const auto& [db_name, db_info] : databases_) {
+        auto it = db_info.tables.find(NormalizeName(parent_table));
+        if (it != db_info.tables.end()) {
+            for (const auto& fk : it->second.foreign_keys) {
+                result.push_back(fk);
+            }
+            break;  // Found the table in this database
+        }
+    }
+    return result;
+}
+
+std::vector<ForeignKeyInfo> Catalog::GetAllForeignKeys() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<ForeignKeyInfo> result;
+
+    for (const auto& [db_name, db_info] : databases_) {
+        for (const auto& [tbl_name, tbl_info] : db_info.tables) {
+            for (const auto& fk : tbl_info.foreign_keys) {
+                result.push_back(fk);
+            }
+        }
+    }
+    return result;
+}
+
+// =============================================================================
 // Persistence
 // =============================================================================
 

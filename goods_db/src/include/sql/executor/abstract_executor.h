@@ -180,6 +180,7 @@ public:
 
 private:
     ExecutorContext* ctx_;
+    const DeletePlanNode* plan_;
     std::unique_ptr<AbstractExecutor> child_;
     bool executed_{false};
 };

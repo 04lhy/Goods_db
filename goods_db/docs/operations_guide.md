@@ -497,7 +497,46 @@ goods_db_studio/
 
 ---
 
-## 十、配置参数
+## 十、第四阶段新增功能（v1.2.2）
+
+### 10.1 级联删除 (CASCADE DELETE)
+
+删除父表行时自动级联删除所有子表关联行，支持多层递归。
+
+**注册外键关系**：
+```sql
+REGISTER_FK parent_table.parent_column child_table.child_column [CASCADE|RESTRICT|SET_NULL]
+```
+
+**示例**：
+```sql
+REGISTER_FK warehouses.id inventory.warehouse_id CASCADE;
+REGISTER_FK customers.id orders.customer_id CASCADE;
+REGISTER_FK orders.id order_items.order_id CASCADE;
+```
+
+**级联效果**：删除 `warehouses.id=1` 时，自动删除 `inventory` 和 `shipments` 中 `warehouse_id=1` 的所有行。
+
+**Web 前端**：删除确认对话框中展示级联删除警告，列出所有受影响的子表。
+
+### 10.2 IS NULL 修复（v1.2.1）
+
+`WHERE column IS NULL` 和 `IS NOT NULL` 在 v1.2.0 中始终返回 FALSE。修复后正确匹配 NULL 列。
+
+### 10.3 权限隔离
+
+系统默认三个用户：
+| 用户 | 密码 | 权限 |
+|------|------|------|
+| root | （空） | 全部权限 |
+| admin | 12345 | 全部权限 |
+| guest | （空） | 仅 SELECT |
+
+以 `guest` 身份登录可验证权限隔离效果。
+
+---
+
+## 十一、配置参数
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|

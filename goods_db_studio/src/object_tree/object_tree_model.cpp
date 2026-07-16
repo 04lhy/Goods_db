@@ -1,5 +1,7 @@
 #include "object_tree/object_tree_model.h"
 
+#include <QIcon>
+
 namespace goods_db {
 namespace studio {
 
@@ -185,6 +187,18 @@ QVariant ObjectTreeModel::data(const QModelIndex& index, int role) const {
   if (role == Qt::DisplayRole) {
     if (index.column() == 0) return node->name;
     if (index.column() == 1) return node->extra;
+  }
+  if (role == Qt::DecorationRole && index.column() == 0) {
+    switch (node->type) {
+      case TreeNode::SERVER:       return QIcon(":/icons/connect.svg");
+      case TreeNode::DATABASE:     return QIcon(":/icons/database.svg");
+      case TreeNode::TABLES_FOLDER: return QIcon(":/icons/folder.svg");
+      case TreeNode::TABLE:        return QIcon(":/icons/table.svg");
+      case TreeNode::COLUMNS_FOLDER: return QIcon(":/icons/folder.svg");
+      case TreeNode::COLUMN:       return QIcon(":/icons/column.svg");
+      case TreeNode::INDEXES_FOLDER: return QIcon(":/icons/folder.svg");
+      case TreeNode::INDEX_ITEM:   return QIcon(":/icons/column.svg");
+    }
   }
   return QVariant();
 }

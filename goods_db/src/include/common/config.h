@@ -41,7 +41,7 @@ constexpr int32_t INVALID_FRAME_ID = -1;
 constexpr int32_t INVALID_TXN_ID = -1;
 
 /// Database version string
-constexpr const char* GOODS_DB_VERSION = "0.1.0";
+constexpr const char* GOODS_DB_VERSION = "1.0.0";
 
 /// Default data directory
 constexpr const char* DEFAULT_DATA_DIR = "./data";

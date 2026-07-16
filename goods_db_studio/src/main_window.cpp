@@ -6,6 +6,7 @@
 #include <QDockWidget>
 #include <QFile>
 #include <QFileDialog>
+#include <QIcon>
 #include <QInputDialog>
 #include <QMenuBar>
 #include <QMessageBox>
@@ -19,6 +20,11 @@
 #include "network/goods_db_client.h"
 #include "object_tree/object_tree_widget.h"
 #include "object_tree/table_info_panel.h"
+#include "ui/admin_panel.h"
+#include "ui/backup_wizard.h"
+#include "ui/log_viewer.h"
+#include "ui/user_manager.h"
+#include "ui/welcome_widget.h"
 #include "result_view/export_dialog.h"
 #include "result_view/result_table_view.h"
 #include "sql_editor/query_executor.h"
@@ -56,6 +62,12 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   connect(object_tree_, &ObjectTreeWidget::TableDoubleClicked,
           this, &MainWindow::OnTableDoubleClicked);
 
+  // Wire welcome widget signals
+  connect(welcome_widget_, &WelcomeWidget::NewConnectionRequested,
+          this, &MainWindow::OnNewConnection);
+  connect(welcome_widget_, &WelcomeWidget::OpenFileRequested,
+          this, &MainWindow::OnOpenFile);
+
   // Load saved settings last (after all widgets are created)
   LoadSettings();
 
@@ -66,24 +78,57 @@ MainWindow::~MainWindow() {
   SaveSettings();
 }
 
+void MainWindow::SetInitialConnection(const LoginDialog::LoginInfo& info) {
+  if (info.cancelled) return;
+
+  // Add the connection to the pool and activate it
+  connection_pool_->AddConnection(info.name, info.host, info.port,
+                                   info.user, info.password);
+
+  auto* conn = connection_pool_->GetConnection(info.name);
+  if (conn && conn->IsConnected()) {
+    connection_pool_->SetActiveConnection(info.name);
+    object_tree_->SetConnection(info.name);
+    UpdateConnectionStatus();
+
+    QString role = info.is_guest ? tr("Guest (read-only)") : tr("Administrator");
+    statusBar()->showMessage(
+        tr("Logged in as %1 — %2").arg(info.user).arg(role), 5000);
+  } else {
+    // Connection failed — show the connection dialog
+    statusBar()->showMessage(
+        tr("Connection failed — please check the server is running"), 5000);
+  }
+}
+
 // ---- Menu Bar ---------------------------------------------------------------
 
 void MainWindow::SetupMenuBar() {
   // File menu
   QMenu* file_menu = menuBar()->addMenu(tr("&File"));
-  file_menu->addAction(tr("&New Connection..."), this,
-                       &MainWindow::OnNewConnection, QKeySequence("Ctrl+N"));
-  file_menu->addAction(tr("&Open SQL File..."), this,
-                       &MainWindow::OnOpenFile, QKeySequence("Ctrl+O"));
-  file_menu->addAction(tr("&Save SQL File..."), this,
-                       &MainWindow::OnSaveFile, QKeySequence("Ctrl+S"));
+
+  file_menu->addAction(
+      QIcon(":/icons/new_connection.svg"), tr("&New Connection..."), this,
+      &MainWindow::OnNewConnection, QKeySequence("Ctrl+N"));
+
+  file_menu->addAction(
+      QIcon(":/icons/open_file.svg"), tr("&Open SQL File..."), this,
+      &MainWindow::OnOpenFile, QKeySequence("Ctrl+O"));
+
+  file_menu->addAction(
+      QIcon(":/icons/save.svg"), tr("&Save SQL File..."), this,
+      &MainWindow::OnSaveFile, QKeySequence("Ctrl+S"));
+
   file_menu->addSeparator();
-  disconnect_action_ = file_menu->addAction(tr("&Disconnect"), this,
-                                            &MainWindow::OnDisconnect);
+
+  disconnect_action_ = file_menu->addAction(
+      QIcon(":/icons/disconnect.svg"), tr("&Disconnect"), this,
+      &MainWindow::OnDisconnect);
   disconnect_action_->setEnabled(false);
+
   file_menu->addAction(tr("E&xit"), this, &QWidget::close, QKeySequence("Ctrl+Q"));
 
-  // Edit menu (simplified — actions connect via MainWindow slots)
+  // Edit menu
   QMenu* edit_menu = menuBar()->addMenu(tr("&Edit"));
   QAction* undo_action = edit_menu->addAction(tr("&Undo"));
   undo_action->setShortcut(QKeySequence("Ctrl+Z"));
@@ -114,36 +159,70 @@ void MainWindow::SetupMenuBar() {
 
   // Query menu
   QMenu* query_menu = menuBar()->addMenu(tr("&Query"));
-  execute_action_ = query_menu->addAction(tr("&Execute All"), this,
-                                          &MainWindow::OnExecuteQuery,
-                                          QKeySequence("F5"));
-  stop_action_ = query_menu->addAction(tr("&Stop"), this,
-                                       &MainWindow::OnStopQuery,
-                                       QKeySequence("Esc"));
+  execute_action_ = query_menu->addAction(
+      QIcon(":/icons/execute.svg"), tr("&Execute All"), this,
+      &MainWindow::OnExecuteQuery, QKeySequence("F5"));
+  stop_action_ = query_menu->addAction(
+      QIcon(":/icons/stop.svg"), tr("&Stop"), this,
+      &MainWindow::OnStopQuery, QKeySequence("Esc"));
   stop_action_->setEnabled(false);
   query_menu->addSeparator();
-  commit_action_ = query_menu->addAction(tr("&Commit"), this,
-                                         &MainWindow::OnCommit,
-                                         QKeySequence("Ctrl+Shift+C"));
+  commit_action_ = query_menu->addAction(
+      QIcon(":/icons/commit.svg"), tr("&Commit"), this,
+      &MainWindow::OnCommit, QKeySequence("Ctrl+Shift+C"));
   commit_action_->setEnabled(false);
-  rollback_action_ = query_menu->addAction(tr("&Rollback"), this,
-                                           &MainWindow::OnRollback,
-                                           QKeySequence("Ctrl+Shift+R"));
+  rollback_action_ = query_menu->addAction(
+      QIcon(":/icons/rollback.svg"), tr("&Rollback"), this,
+      &MainWindow::OnRollback, QKeySequence("Ctrl+Shift+R"));
   rollback_action_->setEnabled(false);
 
   // Tools menu
   QMenu* tools_menu = menuBar()->addMenu(tr("&Tools"));
-  tools_menu->addAction(tr("&Export Results..."), this,
+  tools_menu->addAction(QIcon(":/icons/export.svg"), tr("&Export Results..."), this,
                         &MainWindow::OnExportResults);
+  tools_menu->addSeparator();
+
+  // Helper lambda: show or re-add a panel tab
+  auto showPanelTab = [this](QWidget* panel, const QString& title) {
+    for (int i = 0; i < central_tabs_->count(); i++) {
+      if (central_tabs_->widget(i) == panel) {
+        central_tabs_->setCurrentIndex(i);
+        return;
+      }
+    }
+    panel->show();
+    int idx = central_tabs_->addTab(panel, title);
+    central_tabs_->setCurrentIndex(idx);
+  };
+
+  tools_menu->addAction(QIcon(":/icons/dashboard.svg"), tr("&Admin Panel"), this,
+                        [this, showPanelTab]() {
+    showPanelTab(admin_panel_, tr("Admin"));
+  });
+  tools_menu->addAction(QIcon(":/icons/backup.svg"), tr("&Backup & Restore Wizard..."),
+                        this, [this]() {
+    auto* wizard = new BackupWizard(connection_pool_, this);
+    wizard->setAttribute(Qt::WA_DeleteOnClose);
+    wizard->show();
+  });
+  tools_menu->addAction(QIcon(":/icons/log.svg"), tr("&Log Viewer"), this,
+                        [this, showPanelTab]() {
+    showPanelTab(log_viewer_, tr("Logs"));
+  });
+  tools_menu->addAction(QIcon(":/icons/permissions.svg"), tr("&User Manager"), this,
+                        [this, showPanelTab]() {
+    showPanelTab(user_manager_, tr("Users"));
+  });
 
   // Settings menu
   QMenu* settings_menu = menuBar()->addMenu(tr("&Settings"));
-  settings_menu->addAction(tr("Toggle &Theme"), this,
+  settings_menu->addAction(QIcon(":/icons/settings.svg"), tr("Toggle &Theme"), this,
                            &MainWindow::OnToggleTheme, QKeySequence("Ctrl+T"));
 
   // Help menu
   QMenu* help_menu = menuBar()->addMenu(tr("&Help"));
-  help_menu->addAction(tr("&About"), this, &MainWindow::OnAbout);
+  help_menu->addAction(QIcon(":/icons/about.svg"), tr("&About"), this,
+                       &MainWindow::OnAbout);
 }
 
 // ---- Tool Bar ---------------------------------------------------------------
@@ -152,30 +231,92 @@ void MainWindow::SetupToolBar() {
   QToolBar* toolbar = addToolBar(tr("Main"));
   toolbar->setObjectName("main_toolbar");
   toolbar->setMovable(false);
+  toolbar->setIconSize(QSize(20, 20));
 
   QAction* a;
-  a = toolbar->addAction(tr("New Connection"));
+  a = toolbar->addAction(QIcon(":/icons/new_connection.svg"), tr("New Connection"));
+  a->setToolTip(tr("New Connection (Ctrl+N)"));
   connect(a, &QAction::triggered, this, &MainWindow::OnNewConnection);
-  a = toolbar->addAction(tr("Open File"));
+
+  a = toolbar->addAction(QIcon(":/icons/open_file.svg"), tr("Open File"));
+  a->setToolTip(tr("Open SQL File (Ctrl+O)"));
   connect(a, &QAction::triggered, this, &MainWindow::OnOpenFile);
+
+  a = toolbar->addAction(QIcon(":/icons/save.svg"), tr("Save"));
+  a->setToolTip(tr("Save SQL File (Ctrl+S)"));
+  connect(a, &QAction::triggered, this, &MainWindow::OnSaveFile);
+
   toolbar->addSeparator();
-  a = toolbar->addAction(tr("Execute (F5)"));
+
+  a = toolbar->addAction(QIcon(":/icons/execute.svg"), tr("Execute (F5)"));
+  a->setToolTip(tr("Execute SQL (F5)"));
   connect(a, &QAction::triggered, this, &MainWindow::OnExecuteQuery);
-  a = toolbar->addAction(tr("Stop"));
+
+  a = toolbar->addAction(QIcon(":/icons/stop.svg"), tr("Stop"));
+  a->setToolTip(tr("Stop Query (Esc)"));
   connect(a, &QAction::triggered, this, &MainWindow::OnStopQuery);
+
   toolbar->addSeparator();
-  a = toolbar->addAction(tr("Commit"));
+
+  a = toolbar->addAction(QIcon(":/icons/commit.svg"), tr("Commit"));
+  a->setToolTip(tr("Commit Transaction (Ctrl+Shift+C)"));
   connect(a, &QAction::triggered, this, &MainWindow::OnCommit);
-  a = toolbar->addAction(tr("Rollback"));
+
+  a = toolbar->addAction(QIcon(":/icons/rollback.svg"), tr("Rollback"));
+  a->setToolTip(tr("Rollback Transaction (Ctrl+Shift+R)"));
   connect(a, &QAction::triggered, this, &MainWindow::OnRollback);
+
+  toolbar->addSeparator();
+
+  a = toolbar->addAction(QIcon(":/icons/export.svg"), tr("Export"));
+  a->setToolTip(tr("Export Results"));
+  connect(a, &QAction::triggered, this, &MainWindow::OnExportResults);
+
+  a = toolbar->addAction(QIcon(":/icons/settings.svg"), tr("Toggle Theme"));
+  a->setToolTip(tr("Toggle Dark/Light Theme (Ctrl+T)"));
+  connect(a, &QAction::triggered, this, &MainWindow::OnToggleTheme);
 }
 
 // ---- Dock Widgets -----------------------------------------------------------
 
 void MainWindow::SetupDockWidgets() {
-  // Central: SQL Editor
-  editor_widget_ = new SqlEditorWidget(this);
-  setCentralWidget(editor_widget_);
+  // Central: QTabWidget containing Welcome + SQL Editor + Admin Panel + Log Viewer + User Manager
+  central_tabs_ = new QTabWidget(this);
+  central_tabs_->setTabsClosable(true);
+
+  // Tab 0: Welcome page (non-closable)
+  welcome_widget_ = new WelcomeWidget(connection_pool_, central_tabs_);
+  central_tabs_->addTab(welcome_widget_, QIcon(":/icons/database.svg"), tr("Home"));
+  central_tabs_->tabBar()->setTabButton(0, QTabBar::RightSide, nullptr);
+
+  // Tab 1: SQL Editor (non-closable)
+  editor_widget_ = new SqlEditorWidget(central_tabs_);
+  central_tabs_->addTab(editor_widget_, tr("SQL"));
+  // Only the SQL tab is non-closable (the primary tab)
+  central_tabs_->tabBar()->setTabButton(1, QTabBar::RightSide, nullptr);
+  central_tabs_->tabBar()->setTabButton(1, QTabBar::LeftSide, nullptr);
+
+  // Tab 2: Admin Panel
+  admin_panel_ = new AdminPanel(connection_pool_, central_tabs_);
+  central_tabs_->addTab(admin_panel_, QIcon(":/icons/dashboard.svg"), tr("Admin"));
+
+  // Tab 3: Log Viewer
+  log_viewer_ = new LogViewer(connection_pool_, central_tabs_);
+  central_tabs_->addTab(log_viewer_, QIcon(":/icons/log.svg"), tr("Logs"));
+
+  // Tab 4: User Manager
+  user_manager_ = new UserManager(connection_pool_, central_tabs_);
+  central_tabs_->addTab(user_manager_, QIcon(":/icons/permissions.svg"), tr("Users"));
+
+  // Allow closing non-essential tabs (re-openable from Tools menu)
+  connect(central_tabs_, &QTabWidget::tabCloseRequested, this, [this](int index) {
+    if (index == 0 || index == 1) return;  // Cannot close Home or SQL tab
+    QWidget* w = central_tabs_->widget(index);
+    central_tabs_->removeTab(index);
+    w->hide();
+  });
+
+  setCentralWidget(central_tabs_);
 
   // Left dock: Object Browser
   QDockWidget* left_dock = new QDockWidget(tr("Object Browser"), this);
@@ -353,8 +494,9 @@ void MainWindow::OnToggleTheme() {
 
 void MainWindow::OnAbout() {
   QMessageBox::about(this, tr("About goods_db_studio"),
-                     tr("goods_db_studio v0.1.0\n\n"
-                        "Desktop client for goods_db database system.\n\n"
+                     tr("goods_db_studio v1.0.0\n\n"
+                        "Desktop client for goods_db database system.\n"
+                        "A lightweight new-retail database management system\n\n"
                         "Database System Design Course Project\n"
                         "Hunan University"));
 }

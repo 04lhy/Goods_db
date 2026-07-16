@@ -34,7 +34,7 @@ void SignalHandler(int sig) {
 }
 
 void PrintUsage(const char* prog) {
-  std::cout << "goods_db server v0.1.0\n"
+  std::cout << "goods_db server v1.0.0\n"
             << "Usage: " << prog << " [options]\n"
             << "Options:\n"
             << "  --host HOST       Bind address (default: 0.0.0.0)\n"
@@ -76,15 +76,15 @@ int main(int argc, char* argv[]) {
 
   goods_db::SetLogLevel(goods_db::LogLevel::INFO);
 
-  std::cout << "goods_db v0.1.0 starting..." << std::endl;
+  std::cout << "goods_db v1.0.0 starting..." << std::endl;
   LOG_INFO("Server starting on {}:{}", host, port);
 
   // ---- Storage layer -------------------------------------------------------
   std::cout << "[1/6] Initializing storage layer..." << std::endl;
   auto disk_mgr = std::make_unique<goods_db::DiskManager>();
-  auto replacer = std::make_unique<goods_db::ClockReplacer>(100);
+  auto replacer = std::make_unique<goods_db::ClockReplacer>(goods_db::BUFFER_POOL_DEFAULT_FRAMES);
   auto bpm = std::make_unique<goods_db::BufferPoolManager>(
-      100, disk_mgr.get(), std::move(replacer));
+      goods_db::BUFFER_POOL_DEFAULT_FRAMES, disk_mgr.get(), std::move(replacer));
   auto catalog = std::make_unique<goods_db::Catalog>(bpm.get());
   std::cout << "[1/6] Storage layer OK" << std::endl;
 
@@ -92,7 +92,8 @@ int main(int argc, char* argv[]) {
   std::cout << "[2/6] Registering storage engine..." << std::endl;
   goods_db::handlerton* hton = goods_db::get_engine("goods_engine");
   if (!hton) {
-    auto* global_hton = new goods_db::handlerton();
+    static goods_db::handlerton global_hton_instance;
+    auto* global_hton = &global_hton_instance;
     global_hton->name = "goods_engine";
     global_hton->init = goods_db::goods_handler::engine_init;
     global_hton->deinit = goods_db::goods_handler::engine_deinit;
@@ -106,7 +107,7 @@ int main(int argc, char* argv[]) {
   // ---- Auth + Log + Lock + Txn --------------------------------------------
   std::cout << "[3/6] Initializing AuthManager..." << std::endl;
   goods_db::AuthManager auth_mgr;
-  auth_mgr.Initialize(catalog.get(), bpm.get());
+  auth_mgr.Initialize(catalog.get(), bpm.get(), disk_mgr.get(), datadir);
   std::cout << "[3/6] AuthManager OK (root@localhost, no password)" << std::endl;
 
   std::cout << "[4/6] Initializing LogManager + LockManager + TransactionManager..."
@@ -128,6 +129,9 @@ int main(int argc, char* argv[]) {
   exec_engine.SetLogManager(&log_mgr);
   exec_engine.SetLockManager(&lock_mgr);
   exec_engine.SetTransactionManager(&txn_mgr);
+  exec_engine.SetShutdownCallback([]() {
+    server_running = false;
+  });
   std::cout << "[5/6] Engine OK" << std::endl;
 
   // ---- Thread pool + Listen ------------------------------------------------

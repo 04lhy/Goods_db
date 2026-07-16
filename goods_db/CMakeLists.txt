@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(goods_db VERSION 0.1.0 LANGUAGES CXX)
+project(goods_db VERSION 1.0.0 LANGUAGES CXX)
 
 # =============================================================================
 # C++17 Standard Configuration
@@ -74,6 +74,15 @@ add_subdirectory(src/storage/table)
 add_subdirectory(src/storage/index)
 add_subdirectory(src/catalog)
 add_subdirectory(src/sql)
+
+# =============================================================================
+# Tools (CLI administration and backup utilities)
+# =============================================================================
+option(ENABLE_TOOLS "Build CLI tools (goods_db_admin, goods_db_dump)" ON)
+if(ENABLE_TOOLS)
+    add_subdirectory(tools)
+    add_subdirectory(tools/data_gen)
+endif()
 
 # =============================================================================
 # Google Test Configuration

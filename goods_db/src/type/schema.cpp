@@ -84,7 +84,7 @@ std::string Schema::ToString() const {
 }
 
 std::string Schema::Serialize() const {
-    // Format: [col_count:4B][for each col: name_len:2B + name + type:1B + max_len:4B + nullable:1B]
+    // Format: [col_count:4B][for each col: name_len:2B + name + type:1B + max_len:4B + nullable:1B + is_primary_key:1B]
     std::string data;
     uint32_t col_count = columns_.size();
     data.append(reinterpret_cast<const char*>(&col_count), 4);
@@ -97,6 +97,7 @@ std::string Schema::Serialize() const {
         uint32_t max_len = col.max_length;
         data.append(reinterpret_cast<const char*>(&max_len), 4);
         data.push_back(col.is_nullable ? 1 : 0);
+        data.push_back(col.is_primary_key ? 1 : 0);
     }
     return data;
 }
@@ -107,29 +108,44 @@ Schema Schema::Deserialize(const char* data, uint32_t len) {
     uint32_t col_count;
     std::memcpy(&col_count, data, 4);
     const char* ptr = data + 4;
+    const char* end = data + len;
 
     std::vector<Column> columns;
     columns.reserve(col_count);
 
     for (uint32_t i = 0; i < col_count; i++) {
+        if (ptr + 2 > end) break;
         uint16_t name_len;
         std::memcpy(&name_len, ptr, 2);
         ptr += 2;
 
+        if (ptr + name_len > end) break;
         std::string name(ptr, name_len);
         ptr += name_len;
 
+        if (ptr + 1 > end) break;
         TypeId type = static_cast<TypeId>(*ptr);
         ptr += 1;
 
+        if (ptr + 4 > end) break;
         uint32_t max_len;
         std::memcpy(&max_len, ptr, 4);
         ptr += 4;
 
+        if (ptr + 1 > end) break;
         bool nullable = (*ptr != 0);
         ptr += 1;
 
-        columns.emplace_back(name, type, max_len, nullable);
+        // is_primary_key: added in v1.2.1; old format may not have this byte
+        bool is_pk = false;
+        if (ptr + 1 <= end) {
+            is_pk = (*ptr != 0);
+            ptr += 1;
+        }
+
+        Column col(name, type, max_len, nullable);
+        col.is_primary_key = is_pk;
+        columns.push_back(std::move(col));
     }
 
     return Schema(std::move(columns));

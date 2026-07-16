@@ -1,8 +1,11 @@
 #include "sql/executor/abstract_executor.h"
 
+#include <set>
 #include <stdexcept>
 
 #include "catalog/catalog.h"
+#include "common/logger.h"
+#include "sql/goods_handler.h"
 #include "sql/handler.h"
 #include "storage/index/b_plus_tree.h"
 #include "storage/index/extendible_hash_index.h"
@@ -188,6 +191,30 @@ bool InsertExecutor::Next(Tuple* /*tuple*/, RID* /*rid*/) {
 
     if (!plan_->table_schema) return false;
 
+    // Helper: get the next auto-increment value for a primary key column
+    auto get_next_id = [&](uint32_t col_idx, TypeId col_type) -> int64_t {
+        int64_t max_id = 0;
+        if (ctx_->table_handler->rnd_init(true) == 0) {
+            Tuple scan_tuple;
+            while (ctx_->table_handler->rnd_next(&scan_tuple) == 0) {
+                Value v = scan_tuple.GetValue(plan_->table_schema, col_idx);
+                if (v.GetTypeId() != TypeId::INVALID) {
+                    int64_t id = 0;
+                    switch (v.GetTypeId()) {
+                        case TypeId::TINYINT:  id = v.GetAsTinyInt(); break;
+                        case TypeId::SMALLINT: id = v.GetAsSmallInt(); break;
+                        case TypeId::INTEGER:  id = v.GetAsInteger(); break;
+                        case TypeId::BIGINT:   id = v.GetAsBigInt(); break;
+                        default: break;
+                    }
+                    if (id > max_id) max_id = id;
+                }
+            }
+            ctx_->table_handler->rnd_end();
+        }
+        return max_id + 1;
+    };
+
     for (auto& row : plan_->value_rows) {
         // Evaluate expressions to produce values
         std::vector<Value> values(plan_->table_schema->GetColumnCount());
@@ -201,9 +228,39 @@ bool InsertExecutor::Next(Tuple* /*tuple*/, RID* /*rid*/) {
             }
         }
 
+        // Auto-increment: for unspecified PRIMARY KEY integer columns, assign max+1
+        for (uint32_t i = 0; i < values.size(); i++) {
+            if (values[i].GetTypeId() == TypeId::INVALID) {
+                const auto& col = plan_->table_schema->GetColumn(i);
+                if (col.is_primary_key &&
+                    (col.column_type == TypeId::TINYINT ||
+                     col.column_type == TypeId::SMALLINT ||
+                     col.column_type == TypeId::INTEGER ||
+                     col.column_type == TypeId::BIGINT)) {
+                    int64_t next_id = get_next_id(i, col.column_type);
+                    switch (col.column_type) {
+                        case TypeId::TINYINT:
+                            values[i] = Value::CreateTinyInt(static_cast<int8_t>(next_id));
+                            break;
+                        case TypeId::SMALLINT:
+                            values[i] = Value::CreateSmallInt(static_cast<int16_t>(next_id));
+                            break;
+                        case TypeId::INTEGER:
+                            values[i] = Value::CreateInteger(static_cast<int32_t>(next_id));
+                            break;
+                        case TypeId::BIGINT:
+                            values[i] = Value::CreateBigInt(next_id);
+                            break;
+                        default: break;
+                    }
+                }
+            }
+        }
+
         auto tuple = Tuple::CreateFromValues(values, plan_->table_schema);
-        ctx_->table_handler->write_row(tuple);
-        ctx_->affected_rows++;
+        if (ctx_->table_handler->write_row(tuple) == 0) {
+            ctx_->affected_rows++;
+        }
     }
 
     return false;  // INSERT produces no output rows
@@ -275,33 +332,169 @@ bool UpdateExecutor::Next(Tuple* /*tuple*/, RID* /*rid*/) {
 // =============================================================================
 
 DeleteExecutor::DeleteExecutor(ExecutorContext* ctx,
-                                 const DeletePlanNode* /*plan*/,
+                                 const DeletePlanNode* plan,
                                  std::unique_ptr<AbstractExecutor> child)
-    : ctx_(ctx), child_(std::move(child)) {}
+    : ctx_(ctx), plan_(plan), child_(std::move(child)) {}
 
 void DeleteExecutor::Init() {
     if (child_) child_->Init();
     executed_ = false;
 }
 
+namespace {
+
+// Recursive cascade helper: given a table name + schema + matching PK values,
+// delete child rows and recurse into grandchildren.
+void CascadeDelete(ExecutorContext* ctx,
+                   const std::string& table_name,
+                   const Schema* schema,
+                   const std::vector<std::pair<std::string, Value>>& pk_values,
+                   int depth) {
+    if (!ctx->catalog || depth > 10) return;  // safety limit
+
+    auto children = ctx->catalog->GetChildRelations(table_name);
+    if (children.empty()) return;
+
+    goods_handler child_handler(ctx->bpm, ctx->disk_manager, ctx->catalog);
+
+    for (const auto& fk : children) {
+        if (fk.on_delete != FkAction::CASCADE) continue;
+
+        if (child_handler.open(fk.child_table.c_str()) != 0) {
+            LOG_ERROR("CascadeDelete: failed to open child table '{}'",
+                      fk.child_table);
+            continue;
+        }
+
+        auto* child_schema = child_handler.get_schema();
+        if (!child_schema) { child_handler.close(); continue; }
+
+        // Find FK column index in child table
+        int fk_col_idx = -1;
+        for (uint32_t i = 0; i < child_schema->GetColumnCount(); i++) {
+            if (child_schema->GetColumn(i).column_name == fk.child_column) {
+                fk_col_idx = static_cast<int>(i);
+                break;
+            }
+        }
+        if (fk_col_idx < 0) { child_handler.close(); continue; }
+
+        // Find parent PK index matching fk.parent_column
+        int parent_pk_idx = -1;
+        for (uint32_t i = 0; i < schema->GetColumnCount(); i++) {
+            if (schema->GetColumn(i).column_name == fk.parent_column) {
+                parent_pk_idx = static_cast<int>(i);
+                break;
+            }
+        }
+
+        // Collect child rows to delete + their PK values for grandchild cascade
+        struct ChildRow {
+            RID rid;
+            std::vector<std::pair<std::string, Value>> child_pk_values;
+        };
+        std::vector<ChildRow> to_delete;
+
+        child_handler.rnd_init(true);
+        Tuple child_tuple;
+        while (child_handler.rnd_next(&child_tuple) == 0) {
+            Value child_val = child_tuple.GetValue(
+                child_schema, static_cast<uint32_t>(fk_col_idx));
+
+            // Check if FK value matches any deleted parent PK
+            for (const auto& [pk_col, pk_val] : pk_values) {
+                if (pk_col == fk.parent_column && child_val == pk_val) {
+                    ChildRow cr;
+                    cr.rid = child_tuple.GetRid();
+                    // Collect this child's PK values for grandchild cascade
+                    for (uint32_t i = 0; i < child_schema->GetColumnCount();
+                         i++) {
+                        const auto& col = child_schema->GetColumn(i);
+                        if (col.is_primary_key) {
+                            cr.child_pk_values.push_back(
+                                {col.column_name,
+                                 child_tuple.GetValue(child_schema, i)});
+                        }
+                    }
+                    to_delete.push_back(cr);
+                    break;
+                }
+            }
+        }
+        child_handler.rnd_end();
+
+        // Delete collected child rows
+        for (auto& cr : to_delete) {
+            child_handler.delete_row(cr.rid);
+            ctx->affected_rows++;
+        }
+        child_handler.close();
+
+        if (!to_delete.empty()) {
+            LOG_INFO("CascadeDelete: deleted {} row(s) from '{}' (depth {})",
+                     to_delete.size(), fk.child_table, depth);
+
+            // Recurse into grandchildren — pass all deleted PK values
+            // Merge all PK values from all deleted rows
+            std::vector<std::pair<std::string, Value>> all_pk_values;
+            std::set<std::string> seen;
+            for (auto& cr : to_delete) {
+                for (auto& [col_name, val] : cr.child_pk_values) {
+                    std::string key = col_name + "=" + val.ToString();
+                    if (seen.find(key) == seen.end()) {
+                        seen.insert(key);
+                        all_pk_values.push_back({col_name, val});
+                    }
+                }
+            }
+            CascadeDelete(ctx, fk.child_table, child_schema,
+                          all_pk_values, depth + 1);
+        }
+    }
+}
+
+}  // namespace
+
 bool DeleteExecutor::Next(Tuple* /*tuple*/, RID* /*rid*/) {
     if (executed_ || !ctx_->table_handler || !child_) return false;
     executed_ = true;
 
-    // Phase 1: Collect all matching RIDs — avoid modifying while child iterator
-    // holds page latches (would deadlock on WLatch vs RLatch).
-    std::vector<RID> rids;
+    // Phase 1: Collect matching RIDs + primary key values
+    struct RowInfo {
+        RID rid;
+        std::vector<std::pair<std::string, Value>> pk_values;
+    };
+    std::vector<RowInfo> rows;
     Tuple input_tuple;
     RID input_rid;
-    while (child_->Next(&input_tuple, &input_rid)) {
-        rids.push_back(input_rid);
-    }
-    // Child iterator is now exhausted — all page latches are released.
 
-    // Phase 2: Delete all matching rows safely
-    for (auto& rid : rids) {
-        ctx_->table_handler->delete_row(rid);
+    auto* schema = child_->GetOutputSchema();
+    if (!schema) schema = plan_->table_schema;
+    if (!schema) return false;
+
+    while (child_->Next(&input_tuple, &input_rid)) {
+        RowInfo info;
+        info.rid = input_rid;
+        for (uint32_t i = 0; i < schema->GetColumnCount(); i++) {
+            const auto& col = schema->GetColumn(i);
+            if (col.is_primary_key) {
+                info.pk_values.push_back(
+                    {col.column_name,
+                     input_tuple.GetValue(schema, i)});
+            }
+        }
+        rows.push_back(info);
+    }
+
+    // Phase 2: Delete rows from this table
+    for (auto& row : rows) {
+        ctx_->table_handler->delete_row(row.rid);
         ctx_->affected_rows++;
+    }
+
+    // Phase 3: Recursive cascade to child/grandchild tables
+    for (auto& row : rows) {
+        CascadeDelete(ctx_, plan_->table_name, schema, row.pk_values, 1);
     }
 
     return false;

@@ -101,10 +101,47 @@ void ErrorLog::Log(Level level, const char* file, int line_number,
     std::cerr << line.str();
   }
 
+  // Append to ring buffer
+  {
+    RingEntry entry;
+    entry.timestamp = std::string(time_buf);
+    entry.level = LevelToString(level);
+    entry.message = std::string(msg_buf);
+    entry.source = std::string(file) + ":" + std::to_string(line_number);
+
+    if (ring_buffer_.size() < kRingBufferSize) {
+      ring_buffer_.push_back(std::move(entry));
+    } else {
+      ring_buffer_[ring_pos_] = std::move(entry);
+      ring_pos_ = (ring_pos_ + 1) % kRingBufferSize;
+    }
+  }
+
   // FATAL: abort
   if (level == FATAL) {
     std::abort();
   }
+}
+
+std::vector<ErrorLog::RingEntry> ErrorLog::GetRecentEntries(
+    size_t max_count) const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  std::vector<RingEntry> result;
+  size_t total = ring_buffer_.size();
+  size_t count = std::min(max_count, total);
+  result.reserve(count);
+
+  if (total <= kRingBufferSize) {
+    // Ring hasn't wrapped yet — entries are in linear order
+    size_t start = total > count ? total - count : 0;
+    for (size_t i = start; i < total; i++)
+      result.push_back(ring_buffer_[i]);
+  } else {
+    // Ring has wrapped — start from ring_pos_ (oldest entry)
+    for (size_t i = 0; i < count; i++)
+      result.push_back(ring_buffer_[(ring_pos_ + i) % kRingBufferSize]);
+  }
+  return result;
 }
 
 const char* ErrorLog::LevelToString(Level level) {

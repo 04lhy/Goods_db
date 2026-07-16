@@ -129,23 +129,23 @@ body {
 
 /* -- Data Table -- */
 #table-wrap { flex: 1; overflow: auto; position: relative; }
-#data-table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; }
+#data-table { width: 100%; border-collapse: collapse; font-family: var(--font); font-size: 13px; }
 #data-table thead { position: sticky; top: 0; z-index: 2; }
 #data-table thead th {
-  background: var(--bg2); padding: 6px 10px; text-align: left;
+  background: var(--bg2); padding: 6px 10px; text-align: center;
   border-bottom: 2px solid var(--accent); white-space: nowrap; user-select: none;
 }
 #data-table thead th.sortable { cursor: pointer; }
 #data-table thead th.sortable:hover { color: var(--accent); }
 #data-table thead th .sort-arrow { margin-left: 4px; font-size: 10px; }
 #data-table tbody td {
-  padding: 3px 10px; border-bottom: 1px solid var(--border);
+  padding: 3px 10px; border-bottom: 1px solid var(--border); text-align: center;
   white-space: nowrap; max-width: 350px; overflow: hidden; text-overflow: ellipsis;
 }
 #data-table tbody tr:nth-child(even) td { background: rgba(255,255,255,0.015); }
 #data-table tbody tr:hover td { background: var(--bg3); }
 #data-table tbody tr.selected td { background: rgba(137,180,250,0.12); }
-#data-table .col-num { color: var(--text-dim); text-align: right; width: 44px; }
+#data-table .col-num { color: var(--text-dim); text-align: center; width: 44px; }
 #data-table .col-cb { width: 30px; text-align: center; }
 #data-table .col-cb input { cursor: pointer; accent-color: var(--accent); }
 #data-table .col-actions { width: 56px; text-align: center; }
@@ -155,7 +155,7 @@ body {
 }
 #data-table .col-actions button:hover { opacity: 1; background: var(--bg2); }
 #data-table .null { color: var(--text-dim); font-style: italic; }
-#data-table .num { text-align: right; }
+#data-table .num { text-align: center; }
 
 /* -- Pagination -- */
 #pagination {
@@ -219,6 +219,32 @@ body {
   display: flex; justify-content: flex-end; gap: 8px;
   padding: 10px 16px; border-top: 1px solid var(--border);
 }
+/* Content tabs */
+.content-tab {
+  padding: 6px 16px; cursor: pointer; font-size: 12px; white-space: nowrap;
+  border-bottom: 2px solid transparent; transition: all 0.15s;
+  display: flex; align-items: center; gap: 6px; user-select: none;
+}
+.content-tab:hover { background: var(--bg3); color: var(--accent); }
+.content-tab.active { border-bottom-color: var(--accent); color: var(--accent); font-weight: 600; }
+.content-tab .tab-close {
+  font-size: 10px; opacity: 0.5; cursor: pointer; padding: 0 2px;
+}
+.content-tab .tab-close:hover { opacity: 1; color: var(--danger); }
+.dropdown-menu .ctx-item {
+  padding: 6px 14px; cursor: pointer; font-size: 12px; white-space: nowrap;
+}
+.dropdown-menu .ctx-item:hover { background: var(--bg3); color: var(--accent); }
+/* History list */
+.history-item {
+  padding: 6px 12px; cursor: pointer; border-bottom: 1px solid var(--border);
+  font-family: var(--mono); font-size: 11px; display: flex; justify-content: space-between; align-items: center;
+}
+.history-item:hover { background: var(--bg3); }
+.history-item .h-sql { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-right:12px; }
+.history-item .h-time { color: var(--text-dim); white-space:nowrap; font-size:10px; }
+.history-empty { padding: 24px; text-align: center; color: var(--text-dim); font-style: italic; }
+
 /* Form fields */
 .form-field { display: flex; flex-direction: column; gap: 3px; margin-bottom: 12px; }
 .form-field label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
@@ -255,22 +281,105 @@ body {
 ::-webkit-scrollbar-track { background: var(--bg0); }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+
+/* ---- Login Screen ---- */
+#login-screen {
+  position: fixed; inset: 0; z-index: 500;
+  background: var(--bg0); display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+#login-screen.hidden { display: none; }
+.login-card {
+  background: var(--bg1); border: 1px solid var(--border); border-radius: 12px;
+  padding: 40px; width: 400px; max-width: 90vw; box-shadow: 0 8px 40px rgba(0,0,0,0.5);
+}
+.login-card h1 {
+  text-align: center; font-size: 22px; margin-bottom: 4px; color: var(--accent);
+}
+.login-card .subtitle { text-align: center; font-size: 12px; color: var(--text-dim); margin-bottom: 28px; }
+.login-card .field { margin-bottom: 16px; }
+.login-card .field label { display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+.login-card .field input {
+  width: 100%; padding: 10px 12px; background: var(--bg0); color: var(--text);
+  border: 1px solid var(--border); border-radius: 6px; font-size: 14px; font-family: var(--mono);
+  box-sizing: border-box;
+}
+.login-card .field input:focus { border-color: var(--accent); outline: none; }
+.login-card .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.login-card .btn-login {
+  width: 100%; padding: 10px; margin-top: 8px; font-size: 14px; font-weight: 600;
+}
+.login-card .login-error { color: var(--danger); font-size: 12px; text-align: center; min-height: 18px; margin-top: 8px; }
+.login-card .login-info { color: var(--text-dim); font-size: 11px; text-align: center; margin-top: 16px; line-height: 1.6; }
+.login-card .login-info b { color: var(--text-secondary); }
+
+/* ---- User Badge in Conn Bar ---- */
+#user-badge {
+  display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--accent);
+  cursor: pointer; padding: 2px 8px; border-radius: 4px; transition: background 0.15s;
+}
+#user-badge:hover { background: var(--bg3); }
+#user-badge .role-tag {
+  font-size: 10px; padding: 1px 6px; border-radius: 3px; font-weight: 600;
+}
+.role-tag.admin { background: var(--purple); color: var(--bg0); }
+.role-tag.root { background: var(--danger); color: var(--bg0); }
+.role-tag.user { background: var(--info); color: var(--bg0); }
+.role-tag.guest { background: var(--text-dim); color: var(--bg0); }
+
+/* ---- User Management Modal ---- */
+.user-list-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.user-list-table th { text-align: left; padding: 6px 10px; border-bottom: 2px solid var(--accent); color: var(--text-secondary); font-weight: 600; }
+.user-list-table td { padding: 5px 10px; border-bottom: 1px solid var(--border); }
+.user-list-table tr:hover td { background: var(--bg3); }
+.user-list-table .user-actions { text-align: right; white-space: nowrap; }
+.user-list-table .user-actions button { margin-left: 4px; }
+.priv-check-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.priv-check-grid label { display: flex; align-items: center; gap: 4px; font-size: 12px; cursor: pointer; padding: 3px 6px; border-radius: 3px; }
+.priv-check-grid label:hover { background: var(--bg3); }
+.priv-check-grid input { accent-color: var(--accent); }
 </style>
 </head>
 <body>
 
 <!-- ==========================================================================
+     Login Screen
+     ========================================================================== -->
+<div id="login-screen">
+  <div class="login-card">
+    <h1>🛒 goods_db_studio</h1>
+    <div class="subtitle">新零售场景数据库管理系统</div>
+    <div class="field"><label>数据库地址</label><input id="login-host" value="localhost" placeholder="Host"></div>
+    <div class="field-row">
+      <div class="field"><label>端口</label><input id="login-port" value="3307" type="number" placeholder="Port"></div>
+      <div class="field"><label>数据库</label><input id="login-db" value="" placeholder="(可选)"></div>
+    </div>
+    <div class="field"><label>用户名</label><input id="login-user" value="root" placeholder="User"></div>
+    <div class="field"><label>密码</label><input id="login-pass" type="password" placeholder="Password"></div>
+    <button id="btn-login" class="btn primary btn-login">🔐 登 录</button>
+    <div class="login-error" id="login-error"></div>
+    <div class="login-info">
+      默认管理员：<b>root</b>（无密码）<br>
+      只读访客：<b>guest</b> / 管理员：<b>admin</b>（密码 12345）
+    </div>
+  </div>
+</div>
+
+<!-- ==========================================================================
      Connection Toolbar
      ========================================================================== -->
-<div id="conn-bar">
-  <label>Host</label><input id="c-host" value="localhost" size="10" title="服务器地址">
-  <label>Port</label><input id="c-port" value="3307" size="5" type="number" title="端口号">
-  <label>User</label><input id="c-user" value="root" size="8" title="用户名">
-  <label>Pass</label><input id="c-pass" type="password" size="8" title="密码">
-  <button id="btn-connect" class="btn primary">🔗 连接</button>
-  <button id="btn-disconnect" class="btn danger" disabled>断开</button>
+<div id="conn-bar" style="display:none;">
+  <span id="user-badge" title="点击管理用户和权限">
+    <span>👤</span><span id="user-display">root</span>
+    <span class="role-tag root" id="user-role">admin</span>
+  </span>
   <span class="sep"></span>
-  <span id="conn-status" class="err">● 未连接</span>
+  <label>Host</label><span id="conn-host-display" style="color:var(--text-secondary);font-size:12px;">localhost</span>
+  <label>Port</label><span id="conn-port-display" style="color:var(--text-secondary);font-size:12px;">3307</span>
+  <span class="sep"></span>
+  <button id="btn-disconnect" class="btn danger">断开</button>
+  <button id="btn-lock-screen" class="btn" title="锁定屏幕">🔒</button>
+  <span class="spacer"></span>
+  <span id="conn-status" class="ok">● 已连接</span>
 </div>
 
 <!-- ==========================================================================
@@ -288,6 +397,33 @@ body {
 
   <!-- Content Area -->
   <div id="content">
+    <!-- Content Tab Bar -->
+    <div id="content-tabs" style="display:none;align-items:center;background:var(--bg1);border-bottom:1px solid var(--border);">
+      <div id="content-tab-list" style="display:flex;overflow-x:auto;flex:1;">
+        <div class="content-tab active" data-tab="data">📊 数据浏览</div>
+        <div class="content-tab" data-tab="sql0" data-sql-tab="0">💻 SQL 1</div>
+      </div>
+      <button id="btn-new-sql-tab" class="btn small" title="新建 SQL 标签" style="margin-right:4px;">＋</button>
+    </div>
+
+    <!-- SQL Editor Area -->
+    <div id="sql-editor-area" style="display:none;flex:1;flex-direction:column;overflow:hidden;">
+      <div id="sql-editor-toolbar" style="display:flex;align-items:center;gap:6px;padding:6px 12px;background:var(--bg2);border-bottom:1px solid var(--border);">
+        <button id="btn-sql-execute" class="btn primary">▶ 执行 (F5)</button>
+        <button id="btn-sql-stop" class="btn" disabled>⏹ 停止</button>
+        <span class="sep"></span>
+        <button id="btn-sql-history" class="btn" title="查询历史">📜 历史</button>
+        <button id="btn-sql-clear" class="btn" title="清空编辑器">🗑 清空</button>
+        <span class="spacer"></span>
+        <span id="sql-status" style="font-size:11px;color:var(--text-dim);"></span>
+      </div>
+      <textarea id="sql-editor-text" placeholder="在此输入 SQL 语句...&#10;按 F5 执行，Ctrl+Enter 执行&#10;支持多条语句（分号分隔）" style="flex:1;min-height:120px;padding:10px;background:var(--bg0);color:var(--text);border:none;border-bottom:1px solid var(--border);font-family:var(--mono);font-size:13px;resize:vertical;line-height:1.5;tab-size:4;"></textarea>
+      <div id="sql-result-area" style="display:none;flex:1;overflow:auto;min-height:100px;">
+        <div id="sql-result-table-wrap" style="overflow:auto;flex:1;"></div>
+        <div id="sql-result-message" style="padding:8px 12px;font-family:var(--mono);font-size:12px;color:var(--text-dim);"></div>
+      </div>
+    </div>
+
     <!-- Table Header -->
     <div id="table-header" style="display:none;">
       <span class="tbl-icon">📋</span>
@@ -302,7 +438,14 @@ body {
       <span class="sep"></span>
       <button id="btn-toggle-filter" class="btn" title="显示/隐藏筛选条件">🔍 筛选</button>
       <button id="btn-refresh-table" class="btn" title="刷新当前表数据">🔄 刷新</button>
-      <button id="btn-export" class="btn" title="导出为 CSV 文件">📥 导出CSV</button>
+      <div class="dropdown" style="display:inline-block;position:relative;">
+        <button id="btn-export" class="btn" title="导出数据">📥 导出 ▾</button>
+        <div id="export-menu" class="dropdown-menu" style="display:none;position:absolute;top:100%;left:0;background:var(--bg2);border:1px solid var(--border);border-radius:4px;min-width:180px;z-index:50;box-shadow:0 4px 12px rgba(0,0,0,0.5);">
+          <div class="ctx-item" data-fmt="csv">📄 导出 CSV</div>
+          <div class="ctx-item" data-fmt="json">📋 导出 JSON</div>
+          <div class="ctx-item" data-fmt="sql">🗄️ 导出 SQL INSERT</div>
+        </div>
+      </div>
       <span id="btn-view-struct" class="btn" style="cursor:pointer;" title="查看表结构">📐 表结构</span>
     </div>
 
@@ -330,6 +473,24 @@ body {
      ========================================================================== -->
 <div id="statusbar">
   <span class="status-item">就绪</span>
+</div>
+
+<!-- ==========================================================================
+     Modal: Query History
+     ========================================================================== -->
+<div id="modal-history" class="modal-overlay">
+  <div class="modal">
+    <div class="modal-header">
+      <span>📜 查询历史</span>
+      <button class="close-btn" id="modal-history-close">✕</button>
+    </div>
+    <div class="modal-body" id="modal-history-body" style="max-height:50vh;"></div>
+    <div class="modal-footer">
+      <button class="btn danger small" id="btn-clear-history">清空历史</button>
+      <span class="spacer"></span>
+      <button class="btn" id="modal-history-ok">关闭</button>
+    </div>
+  </div>
 </div>
 
 <!-- ==========================================================================
@@ -386,6 +547,76 @@ body {
 </div>
 
 <!-- ==========================================================================
+     Modal: User Management (Admin Panel)
+     ========================================================================== -->
+<div id="modal-users" class="modal-overlay">
+  <div class="modal wide">
+    <div class="modal-header">
+      <span>👥 用户与权限管理</span>
+      <button class="close-btn" id="modal-users-close">✕</button>
+    </div>
+    <div class="modal-body" id="modal-users-body" style="max-height:60vh;"></div>
+    <div class="modal-footer" style="justify-content:space-between;">
+      <div>
+        <button class="btn small" id="btn-refresh-users" title="刷新用户列表">🔄 刷新</button>
+        <button class="btn small" id="btn-show-grants" title="查看当前用户权限">📋 我的权限</button>
+      </div>
+      <button class="btn primary small" id="btn-add-user">＋ 新建用户</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==========================================================================
+     Modal: Add/Edit User
+     ========================================================================== -->
+<div id="modal-user-form" class="modal-overlay">
+  <div class="modal">
+    <div class="modal-header">
+      <span id="modal-user-form-title">新建用户</span>
+      <button class="close-btn" id="modal-user-form-close">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-field"><label>用户名 <span style="color:var(--danger);">*</span></label><input id="f-user-name" placeholder="用户名"></div>
+      <div class="form-field"><label>主机 <span style="color:var(--danger);">*</span></label><input id="f-user-host" value="localhost" placeholder="localhost 或 %"></div>
+      <div class="form-field"><label>密码</label><input id="f-user-pass" type="password" placeholder="留空则不设密码"></div>
+      <div class="form-field"><label>初始权限</label>
+        <div class="priv-check-grid" id="f-user-privs">
+          <label><input type="checkbox" value="SELECT" checked> SELECT</label>
+          <label><input type="checkbox" value="INSERT"> INSERT</label>
+          <label><input type="checkbox" value="UPDATE"> UPDATE</label>
+          <label><input type="checkbox" value="DELETE"> DELETE</label>
+          <label><input type="checkbox" value="CREATE"> CREATE</label>
+          <label><input type="checkbox" value="DROP"> DROP</label>
+          <label><input type="checkbox" value="INDEX"> INDEX</label>
+          <label><input type="checkbox" value="ALTER"> ALTER</label>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" id="modal-user-form-cancel">取消</button>
+      <button class="btn primary" id="modal-user-form-save">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==========================================================================
+     Modal: Grant/Revoke Privileges
+     ========================================================================== -->
+<div id="modal-privs" class="modal-overlay">
+  <div class="modal">
+    <div class="modal-header">
+      <span id="modal-privs-title">权限管理</span>
+      <button class="close-btn" id="modal-privs-close">✕</button>
+    </div>
+    <div class="modal-body" id="modal-privs-body"></div>
+    <div class="modal-footer">
+      <button class="btn" id="modal-privs-cancel">取消</button>
+      <button class="btn primary" id="modal-privs-save">保存权限</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==========================================================================
      Context Menu (right-click on table name)
      ========================================================================== -->
 <div id="ctx-menu"></div>
@@ -422,28 +653,30 @@ function escapeSqlStr(str) {
   return String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
 
-function isNumericType(typeName) {
-  if (!typeName) return false;
-  var t = typeName.toUpperCase();
-  return /^(INT|INTEGER|BIGINT|SMALLINT|TINYINT|DECIMAL|DOUBLE|FLOAT|NUMERIC|REAL)/.test(t);
-}
-
 // ===========================================================================
 // State
 // ===========================================================================
 var state = {
   connected: false,
-  host: '', port: 3307, user: '', password: '',
+  host: '', port: 3307, user: '', password: '', db: '',
   currentDb: null,
   currentTable: null,
-  columns: [],         // [{name, type_name, length}]
+  columns: [],         // [{name, type_name, length, nullable, is_primary_key}]
   currentRows: [],     // [[val, ...], ...]
   page: 1,
   pageSize: 100,
   sortCol: -1,         // column index for sorting (-1 = none)
   sortAsc: true,
   filters: {},         // {columnName: filterValue}
-  checkedRows: {}      // {rowIndex: true}  for batch selection
+  checkedRows: {},     // {rowIndex: true}  for batch selection
+  // Multi-tab SQL editor
+  sqlTabs: [],         // [{id, label, sql, result}]
+  activeSqlTab: -1,   // index in sqlTabs (-1 = data browser)
+  nextSqlTabId: 1,
+  queryHistory: [],    // [{sql, time, host}], persisted in localStorage
+  // Login
+  loggedIn: false,
+  locked: false
 };
 
 // ===========================================================================
@@ -464,8 +697,228 @@ var statusbar         = $('statusbar');
 var ctxMenu           = $('ctx-menu');
 
 // ===========================================================================
-// API calls
+// User & Privilege Management
 // ===========================================================================
+function showUserManagement() {
+  if (!state.connected) { alert('请先登录'); return; }
+  refreshUserList();
+  $('modal-users').classList.add('visible');
+}
+
+function refreshUserList() {
+  executeSQL('SHOW USERS;').then(function(res) {
+    var body = $('modal-users-body');
+    if (!res.success) {
+      body.innerHTML = '<p style="color:var(--danger);">加载用户列表失败: ' + (res.error || '') + '</p>';
+      return;
+    }
+    var users = res.rows || [];
+    var html = '<table class="user-list-table"><thead><tr>' +
+      '<th>用户名</th><th>主机</th><th style="text-align:right;">操作</th>' +
+      '</tr></thead><tbody>';
+    if (users.length === 0) {
+      html += '<tr><td colspan="3" style="color:var(--text-dim);text-align:center;">暂无用户</td></tr>';
+    } else {
+      users.forEach(function(row) {
+        var u = row[0] || '?';
+        var h = row[1] || '?';
+        var isSelf = (u === state.user);
+        html += '<tr>' +
+          '<td><b>' + escapeHtml(u) + '</b>' + (isSelf ? ' <span style="color:var(--accent);font-size:10px;">(当前)</span>' : '') + '</td>' +
+          '<td style="color:var(--text-dim);">' + escapeHtml(h) + '</td>' +
+          '<td class="user-actions">' +
+          '<button class="btn small" onclick="showUserPrivs(\'' + escapeHtml(u) + '\',\'' + escapeHtml(h) + '\')" title="管理权限">🔑 权限</button>' +
+          '<button class="btn small" onclick="changePasswordPrompt(\'' + escapeHtml(u) + '\',\'' + escapeHtml(h) + '\')" title="修改密码">🔒 密码</button>' +
+          (!isSelf ? '<button class="btn small danger" onclick="dropUserConfirm(\'' + escapeHtml(u) + '\',\'' + escapeHtml(h) + '\')" title="删除用户">🗑</button>' : '') +
+          '</td></tr>';
+      });
+    }
+    html += '</tbody></table>';
+    body.innerHTML = html;
+  });
+}
+
+function showAddUserForm() {
+  $('modal-user-form-title').textContent = '＋ 新建用户';
+  $('f-user-name').value = '';
+  $('f-user-host').value = 'localhost';
+  $('f-user-pass').value = '';
+  $('f-user-name').dataset.mode = 'create';
+  // Reset privilege checkboxes
+  var checks = $('f-user-privs').querySelectorAll('input[type=checkbox]');
+  checks.forEach(function(cb) { cb.checked = (cb.value === 'SELECT'); });
+  $('modal-user-form').classList.add('visible');
+}
+
+function saveUserForm() {
+  var name = $('f-user-name').value.trim();
+  var host = $('f-user-host').value.trim();
+  var pass = $('f-user-pass').value;
+  if (!name) { alert('请输入用户名'); return; }
+  if (!host) { alert('请输入主机'); return; }
+
+  var sql = "CREATE USER '" + name + "'@'" + host + "'";
+  if (pass) sql += " IDENTIFIED BY '" + escapeSqlStr(pass) + "'";
+  sql += ';';
+
+  closeModal('modal-user-form');
+  setStatusText('创建用户...');
+  executeSQL(sql).then(function(res) {
+    if (res.success) {
+      // Grant selected privileges
+      var checks = $('f-user-privs').querySelectorAll('input[type=checkbox]:checked');
+      var privs = [];
+      checks.forEach(function(cb) { privs.push(cb.value); });
+      if (privs.length > 0) {
+        var grantSql = 'GRANT ' + privs.join(', ') + ' ON *.* TO \'' + name + '\'@\'' + host + '\';';
+        executeSQL(grantSql).then(function() { refreshUserList(); });
+      } else {
+        refreshUserList();
+      }
+      setStatusText('✅ 用户 ' + name + '@' + host + ' 创建成功');
+    } else {
+      alert('❌ 创建用户失败: ' + (res.error || '未知错误'));
+      setStatusText('创建用户失败');
+    }
+  });
+}
+
+function dropUserConfirm(user, host) {
+  if (!confirm('确定要删除用户 \'' + user + '\'@\'' + host + '\' 吗？\n\n此操作不可撤销。')) return;
+  var sql = "DROP USER '" + user + "'@'" + host + "';";
+  setStatusText('删除用户...');
+  executeSQL(sql).then(function(res) {
+    if (res.success) {
+      setStatusText('✅ 用户 ' + user + '@' + host + ' 已删除');
+      refreshUserList();
+    } else {
+      alert('❌ 删除用户失败: ' + (res.error || '未知错误'));
+      setStatusText('删除用户失败');
+    }
+  });
+}
+
+function changePasswordPrompt(user, host) {
+  var newPass = prompt('为 ' + user + '@' + host + ' 输入新密码:');
+  if (newPass === null) return;
+  var sql = "ALTER USER '" + user + "'@'" + host + "' IDENTIFIED BY '" + escapeSqlStr(newPass) + "';";
+  setStatusText('修改密码...');
+  executeSQL(sql).then(function(res) {
+    if (res.success) {
+      setStatusText('✅ 密码修改成功');
+      alert('密码已更新');
+    } else {
+      alert('❌ 修改密码失败: ' + (res.error || '未知错误'));
+    }
+  });
+}
+
+function showUserPrivs(user, host) {
+  executeSQL("SHOW GRANTS FOR '" + user + "'@'" + host + "';").then(function(res) {
+    var body = $('modal-privs-body');
+    var title = $('modal-privs-title');
+    title.textContent = '🔑 ' + user + '@' + host + ' — 权限';
+
+    // Build privilege checkboxes
+    var allPrivs = ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'CREATE', 'DROP', 'INDEX', 'ALTER'];
+    var currentPrivs = {};
+    if (res.success && res.rows) {
+      res.rows.forEach(function(row) {
+        var grantText = row[0] || '';
+        allPrivs.forEach(function(p) {
+          if (grantText.indexOf(p) >= 0) currentPrivs[p] = true;
+        });
+        if (grantText.indexOf('ALL PRIVILEGES') >= 0 || grantText.indexOf('ALL ') >= 0) {
+          allPrivs.forEach(function(p) { currentPrivs[p] = true; });
+        }
+      });
+    }
+
+    var html = '<p style="margin-bottom:12px;font-size:12px;color:var(--text-dim);">选择要授予的权限（取消选中=撤销该权限）：</p>';
+    html += '<div class="priv-check-grid">';
+    allPrivs.forEach(function(p) {
+      html += '<label><input type="checkbox" value="' + p + '"' + (currentPrivs[p] ? ' checked' : '') + '> ' + p + '</label>';
+    });
+    html += '<label style="grid-column:1/-1;margin-top:8px;border-top:1px solid var(--border);padding-top:8px;">' +
+      '<input type="checkbox" value="ALL" id="priv-all-cb" onchange="toggleAllPrivs(this)"> <b>ALL PRIVILEGES</b></label>';
+    html += '</div>';
+
+    if (res.success && res.rows) {
+      html += '<div style="margin-top:16px;padding:8px;background:var(--bg0);border-radius:4px;font-family:var(--mono);font-size:11px;max-height:120px;overflow:auto;">';
+      html += '<div style="color:var(--text-dim);margin-bottom:4px;">当前授权语句：</div>';
+      res.rows.forEach(function(row) {
+        html += '<div style="color:var(--info);">' + escapeHtml(row[0] || '') + '</div>';
+      });
+      if (res.rows.length === 0) {
+        html += '<div style="color:var(--text-dim);">无权限（仅 USAGE）</div>';
+      }
+      html += '</div>';
+    }
+
+    body.innerHTML = html;
+    // Store for save
+    body.dataset.user = user;
+    body.dataset.host = host;
+    $('modal-privs').classList.add('visible');
+  });
+}
+
+function toggleAllPrivs(cb) {
+  var checks = $('modal-privs-body').querySelectorAll('input[type=checkbox]:not(#priv-all-cb)');
+  checks.forEach(function(c) { c.checked = cb.checked; });
+}
+
+function savePrivileges() {
+  var body = $('modal-privs-body');
+  var user = body.dataset.user;
+  var host = body.dataset.host;
+  if (!user) return;
+
+  var checks = body.querySelectorAll('input[type=checkbox]:checked:not(#priv-all-cb)');
+  var privs = [];
+  checks.forEach(function(cb) { if (cb.value !== 'ALL') privs.push(cb.value); });
+
+  // Grant selected, revoke unselected
+  var allPrivs = ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'CREATE', 'DROP', 'INDEX', 'ALTER'];
+  var toGrant = [];
+  var toRevoke = [];
+  allPrivs.forEach(function(p) {
+    if (privs.indexOf(p) >= 0) toGrant.push(p);
+    else toRevoke.push(p);
+  });
+
+  closeModal('modal-privs');
+
+  var promises = [];
+  if (toGrant.length > 0) {
+    promises.push(executeSQL('GRANT ' + toGrant.join(', ') + ' ON *.* TO \'' + user + '\'@\'' + host + '\';'));
+  }
+  if (toRevoke.length > 0) {
+    promises.push(executeSQL('REVOKE ' + toRevoke.join(', ') + ' ON *.* FROM \'' + user + '\'@\'' + host + '\';'));
+  }
+
+  Promise.all(promises).then(function(results) {
+    var errors = results.filter(function(r) { return !r.success; });
+    if (errors.length === 0) {
+      setStatusText('✅ ' + user + '@' + host + ' 权限已更新');
+    } else {
+      alert('部分权限更新失败:\n' + errors.map(function(e) { return e.error; }).join('\n'));
+    }
+  });
+}
+
+function showMyGrants() {
+  executeSQL("SHOW GRANTS FOR '" + state.user + "'@'localhost';").then(function(res) {
+    var lines = [];
+    if (res.success && res.rows) {
+      res.rows.forEach(function(row) { lines.push(row[0]); });
+    }
+    if (lines.length === 0) lines.push('GRANT USAGE ON *.* TO \'' + state.user + '\'@\'localhost\'');
+    alert('当前用户 ' + state.user + ' 的权限:\n\n' + lines.join('\n'));
+  });
+}
+
+
 function api(method, path, body) {
   var opts = { method: method, headers: { 'Content-Type': 'application/json' } };
   if (body) opts.body = JSON.stringify(body);
@@ -502,16 +955,87 @@ function doConnect() {
   });
 }
 
+function doLogin() {
+  var host = $('login-host').value.trim() || 'localhost';
+  var port = parseInt($('login-port').value) || 3307;
+  var user = $('login-user').value.trim() || 'root';
+  var password = $('login-pass').value;
+  var db = $('login-db').value.trim() || '';
+
+  var btn = $('btn-login');
+  var errEl = $('login-error');
+  btn.disabled = true; btn.textContent = '登录中...';
+  errEl.textContent = '';
+
+  api('POST', '/api/connect', {
+    host: host, port: port, user: user, password: password, db: db
+  }).then(function(res) {
+    btn.disabled = false; btn.textContent = '🔐 登 录';
+    if (res.success) {
+      state.connected = true;
+      state.loggedIn = true;
+      state.locked = false;
+      state.host = host;
+      state.port = port;
+      state.user = user;
+      state.password = password;
+      state.db = db;
+
+      // Hide login, show main UI
+      $('login-screen').classList.add('hidden');
+      $('conn-bar').style.display = 'flex';
+      $('user-display').textContent = user;
+      updateRoleTag(user);
+      $('conn-host-display').textContent = host;
+      $('conn-port-display').textContent = port;
+      setStatus('ok', '● ' + user + '@' + host + ':' + port);
+      saveConnInfo();
+      loadDatabases();
+    } else {
+      errEl.textContent = '❌ ' + (res.error || '登录失败，请检查用户名和密码');
+    }
+  }).catch(function(e) {
+    btn.disabled = false; btn.textContent = '🔐 登 录';
+    errEl.textContent = '❌ 网络错误: ' + e.message;
+  });
+}
+
+function updateRoleTag(user) {
+  var tag = $('user-role');
+  if (user === 'root') { tag.textContent = 'root'; tag.className = 'role-tag root'; }
+  else if (user === 'admin') { tag.textContent = 'admin'; tag.className = 'role-tag admin'; }
+  else if (user === 'guest') { tag.textContent = 'guest'; tag.className = 'role-tag guest'; }
+  else { tag.textContent = 'user'; tag.className = 'role-tag user'; }
+}
+
+function doLockScreen() {
+  state.locked = true;
+  $('login-screen').classList.remove('hidden');
+  $('conn-bar').style.display = 'none';
+  $('login-error').textContent = '屏幕已锁定，请重新输入密码';
+  $('login-user').value = state.user;
+  $('login-host').value = state.host;
+  $('login-port').value = state.port;
+  $('login-pass').value = '';
+  $('login-pass').focus();
+}
+
 function doDisconnect() {
   api('POST', '/api/disconnect', {}).then(function() {
     state.connected = false;
+    state.loggedIn = false;
     btnConnect.disabled = false; btnDisconnect.disabled = true;
+    $('conn-bar').style.display = 'none';
+    $('login-screen').classList.remove('hidden');
+    $('login-error').textContent = '已断开连接';
     setStatus('err', '● 未连接');
     treeEl.innerHTML = '<div class="tree-empty">请先连接数据库</div>';
     clearTable();
   }).catch(function() {
     state.connected = false;
-    btnConnect.disabled = false; btnDisconnect.disabled = true;
+    state.loggedIn = false;
+    $('conn-bar').style.display = 'none';
+    $('login-screen').classList.remove('hidden');
     setStatus('err', '● 未连接');
   });
 }
@@ -538,7 +1062,7 @@ function setStatus(cls, text) {
 function saveConnInfo() {
   try {
     localStorage.setItem('goods_db_conn', JSON.stringify({
-      host: state.host, port: state.port, user: state.user, password: state.password
+      host: state.host, port: state.port, user: state.user, password: state.password, db: state.db
     }));
   } catch(e) {}
 }
@@ -547,10 +1071,11 @@ function loadConnInfo() {
   try {
     var saved = JSON.parse(localStorage.getItem('goods_db_conn'));
     if (saved) {
-      $('c-host').value = saved.host || 'localhost';
-      $('c-port').value = saved.port || 3307;
-      $('c-user').value = saved.user || 'root';
-      $('c-pass').value = saved.password || '';
+      $('login-host').value = saved.host || 'localhost';
+      $('login-port').value = saved.port || 3307;
+      $('login-user').value = saved.user || 'root';
+      $('login-pass').value = saved.password || '';
+      $('login-db').value = saved.db || '';
     }
   } catch(e) {}
 }
@@ -677,6 +1202,7 @@ function selectTable(dbName, tableName) {
   state.filters = {};
   state.checkedRows = {};
   state.columns = [];
+  updateFilterBtn();
 
   markActiveTable(dbName, tableName);
 
@@ -718,24 +1244,76 @@ function loadTableData(dbName, tableName, page) {
         showError((res && res.error) || '查询失败');
         return;
       }
-      if (res.columns && res.columns.length > 0) {
-        state.currentRows = res.rows || [];
-        renderTable(res.columns, state.currentRows, res.exec_time_ms);
-        renderPagination(page, state.currentRows.length);
-        setStatusText((res.rows ? res.rows.length : 0) + ' 行' +
-          (res.exec_time_ms !== undefined ? ' — ' + res.exec_time_ms + ' ms' : ''));
-      } else {
-        // No columns — probably a non-SELECT or error
-        state.currentRows = [];
-        renderTable(state.columns, [], 0);
-        renderPagination(1, 0);
-        setStatusText('0 行');
+      // Merge res.columns type info into state.columns (more precise type names from server)
+      if (res.columns && res.columns.length > 0 && state.columns.length > 0) {
+        for (var i = 0; i < Math.min(res.columns.length, state.columns.length); i++) {
+          if (res.columns[i].type_name && !state.columns[i].type_name) {
+            state.columns[i].type_name = res.columns[i].type_name;
+          }
+          if (res.columns[i].length && !state.columns[i].length) {
+            state.columns[i].length = res.columns[i].length;
+          }
+          // Preserve nullable / is_primary_key from SHOW COLUMNS
+          if (res.columns[i].nullable !== undefined && state.columns[i].nullable === undefined) {
+            state.columns[i].nullable = res.columns[i].nullable;
+          }
+          if (res.columns[i].is_primary_key !== undefined && state.columns[i].is_primary_key === undefined) {
+            state.columns[i].is_primary_key = res.columns[i].is_primary_key;
+          }
+        }
       }
+      state.currentRows = res.rows || [];
+      if (state.columns.length > 0) {
+        // Always use state.columns (from SHOW COLUMNS) for consistent column metadata
+        renderTable(state.columns, state.currentRows, res.exec_time_ms);
+      } else if (res.columns && res.columns.length > 0) {
+        // Fallback: use columns from SELECT response
+        renderTable(res.columns, state.currentRows, res.exec_time_ms);
+      } else {
+        // No column info at all — show empty table
+        state.currentRows = [];
+        renderTable([], [], 0);
+      }
+      renderPagination(page, state.currentRows.length);
+      setStatusText((state.currentRows ? state.currentRows.length : 0) + ' 行' +
+        (res.exec_time_ms !== undefined ? ' — ' + res.exec_time_ms + ' ms' : ''));
     })
     .catch(function(e) {
       showLoading(false);
       showError('网络错误: ' + e.message);
     });
+}
+
+function isNumericType(typeName) {
+  if (!typeName) return false;
+  var t = typeName.toUpperCase();
+  // Match exact or prefix (handles "int", "INT", "int(11)", "INT NOT NULL", etc.)
+  return t === 'INT' || t === 'INTEGER' || t === 'TINYINT' || t === 'SMALLINT' ||
+         t === 'BIGINT' || t === 'DECIMAL' || t === 'FLOAT' || t === 'DOUBLE' ||
+         t === 'NUMERIC' || t === 'REAL' || t === 'BOOLEAN' || t === 'BOOL' ||
+         t.indexOf('INT(') === 0 || t.indexOf('INT ') === 0 ||
+         t.indexOf('DECIMAL(') === 0 || t.indexOf('FLOAT(') === 0 ||
+         t.indexOf('NUMERIC(') === 0;
+}
+
+function isStringType(typeName) {
+  if (!typeName) return true;  // fallback to LIKE for unknown types
+  var t = typeName.toUpperCase();
+  return t.indexOf('CHAR') >= 0 || t.indexOf('TEXT') >= 0 || t === 'VARCHAR' ||
+         t === 'STRING';
+}
+
+function isDateTimeType(typeName) {
+  if (!typeName) return false;
+  var t = typeName.toUpperCase();
+  return t === 'TIMESTAMP' || t === 'DATE' || t === 'DATETIME' || t === 'TIME';
+}
+
+function getColType(colName) {
+  for (var i = 0; i < state.columns.length; i++) {
+    if (state.columns[i].name === colName) return state.columns[i].type_name;
+  }
+  return null;
 }
 
 function buildSelectSQL(dbName, tableName, offset, limit) {
@@ -744,22 +1322,37 @@ function buildSelectSQL(dbName, tableName, offset, limit) {
     : '*';
   var sql = 'SELECT ' + cols + ' FROM ' + qualifiedTable(dbName, tableName);
 
-  // Add WHERE filters
+  // Add WHERE filters — type-aware:
+  //   Numeric columns:  use = for exact match
+  //   String columns:   use LIKE '%value%' for fuzzy match
+  //   DateTime columns: use LIKE '%value%' for partial date match
   var whereParts = [];
   Object.keys(state.filters).forEach(function(colName) {
     var val = state.filters[colName];
     if (val === '' || val === null || val === undefined) return;
-    var col = findColumn(colName);
-    if (col && isNumericType(col.type_name)) {
-      if (!isNaN(parseFloat(val))) {
-        whereParts.push(quoteId(colName) + ' = ' + parseFloat(val));
+    var colType = getColType(colName);
+    if (isNumericType(colType)) {
+      // Exact match for numeric types
+      var numVal = parseFloat(val);
+      if (!isNaN(numVal) && String(numVal) === val.trim()) {
+        whereParts.push(quoteId(colName) + ' = ' + numVal);
+      } else {
+        // Fallback: non-numeric input on numeric column → LIKE for flexibility
+        whereParts.push(quoteId(colName) + " LIKE '%" + escapeSqlStr(val) + "%'");
       }
     } else {
+      // Fuzzy match for string and datetime types
       whereParts.push(quoteId(colName) + " LIKE '%" + escapeSqlStr(val) + "%'");
     }
   });
   if (whereParts.length > 0) {
     sql += ' WHERE ' + whereParts.join(' AND ');
+  }
+
+  // Add ORDER BY for server-side sorting
+  if (state.sortCol >= 0 && state.sortCol < state.columns.length) {
+    var sortColName = state.columns[state.sortCol].name;
+    sql += ' ORDER BY ' + quoteId(sortColName) + (state.sortAsc ? ' ASC' : ' DESC');
   }
 
   sql += ' LIMIT ' + limit + ' OFFSET ' + offset + ';';
@@ -769,6 +1362,11 @@ function buildSelectSQL(dbName, tableName, offset, limit) {
 function findColumn(colName) {
   for (var i = 0; i < state.columns.length; i++) {
     if (state.columns[i].name === colName) return state.columns[i];
+  }
+  // Fallback: case-insensitive match
+  var lowerName = colName.toLowerCase();
+  for (var i = 0; i < state.columns.length; i++) {
+    if (state.columns[i].name.toLowerCase() === lowerName) return state.columns[i];
   }
   return null;
 }
@@ -823,7 +1421,6 @@ function renderTable(columns, rows, execTimeMs) {
 
   // tbody
   var tbody = document.createElement('tbody');
-  state.checkedRows = {};
   rows.forEach(function(row, i) {
     var tr = document.createElement('tr');
     if (state.checkedRows[i]) tr.classList.add('selected');
@@ -848,7 +1445,8 @@ function renderTable(columns, rows, execTimeMs) {
     columns.forEach(function(col, j) {
       var td = document.createElement('td');
       var val = j < row.length ? row[j] : null;
-      if (val === null || val === undefined) {
+      // Empty string represents NULL in goods_db protocol
+      if (val === null || val === undefined || val === '') {
         td.innerHTML = '<span class="null">(NULL)</span>';
       } else if ((col.type_name && isNumericType(col.type_name)) ||
                  (!isNaN(parseFloat(val)) && isFinite(val) && String(val).trim() !== '' && !/^\s*$/.test(val))) {
@@ -920,19 +1518,10 @@ function sortByColumn(colIdx) {
     state.sortCol = colIdx;
     state.sortAsc = true;
   }
-  var asc = state.sortAsc;
-  state.currentRows.sort(function(a, b) {
-    var va = a[colIdx], vb = b[colIdx];
-    if (va === null || va === undefined) return asc ? -1 : 1;
-    if (vb === null || vb === undefined) return asc ? 1 : -1;
-    if (typeof va === 'number' && typeof vb === 'number') return asc ? va - vb : vb - va;
-    var sa = String(va), sb = String(vb);
-    var na = parseFloat(sa), nb = parseFloat(sb);
-    if (!isNaN(na) && !isNaN(nb) && isFinite(na) && isFinite(nb)) return asc ? na - nb : nb - na;
-    return asc ? sa.localeCompare(sb) : sb.localeCompare(sa);
-  });
   state.page = 1;
-  renderTable(state.columns, state.currentRows);
+  state.checkedRows = {};
+  // Re-fetch with ORDER BY from server for correct paginated sort
+  refreshTableData(state.currentDb, state.currentTable, 1);
 }
 
 // ===========================================================================
@@ -991,7 +1580,7 @@ function renderPagination(page, rowCount) {
 function goToPage(page) {
   state.page = page;
   state.checkedRows = {};
-  loadTableData(state.currentDb, state.currentTable, page);
+  refreshTableData(state.currentDb, state.currentTable, page);
 }
 
 // ===========================================================================
@@ -1035,12 +1624,25 @@ function buildFormFields(columns, values, isEdit) {
     if (val === null || val === undefined) val = '';
     var typeHint = col.type_name ? col.type_name + (col.length ? '(' + col.length + ')' : '') : '';
     var inputType = isNumericType(col.type_name) ? 'number' : 'text';
-    var readonly = (isEdit && i === 0) ? ' readonly style="opacity:0.6;cursor:not-allowed;"' : '';
-    var pkLabel = (isEdit && i === 0) ? ' <span style="color:var(--warning);font-size:10px;">(主键，不可修改)</span>' : '';
+    var readonly = '';
+    var requiredMark = '';
+    var requiredAttr = '';
+
+    // Mark NOT NULL columns as required (skip for edit mode and auto-increment PK)
+    if (col.nullable === false && !isEdit && !col.is_primary_key) {
+      requiredMark = ' <span style="color:#f38ba8;font-weight:bold;" title="必填字段">*</span>';
+      requiredAttr = ' required';
+    }
+
+    // Placeholder hint for auto-increment primary key
+    var placeholder = col.type_name ? escapeHtml(col.type_name) : '';
+    if (col.is_primary_key && !isEdit) {
+      placeholder = '自动分配（留空即可）';
+    }
 
     html += '<div class="form-field">';
-    html += '<label>' + escapeHtml(col.name) + pkLabel + ' <span class="type-hint">' + escapeHtml(typeHint) + '</span></label>';
-    html += '<input type="' + inputType + '" data-col="' + escapeHtml(col.name) + '" value="' + escapeHtml(String(val)) + '" placeholder="' + (col.type_name ? escapeHtml(col.type_name) : '') + '"' + readonly + '>';
+    html += '<label>' + escapeHtml(col.name) + requiredMark + ' <span class="type-hint">' + escapeHtml(typeHint) + '</span></label>';
+    html += '<input type="' + inputType + '" data-col="' + escapeHtml(col.name) + '" value="' + escapeHtml(String(val)) + '" placeholder="' + placeholder + '"' + readonly + requiredAttr + '>';
     html += '</div>';
   });
   if (columns.length > 4) html += '</div>';
@@ -1064,39 +1666,74 @@ function submitForm() {
 
   if (mode === 'edit' && !isNaN(editRowIdx)) {
     // ---- UPDATE ----
-    var pkCol = state.columns[0].name;
-    // Get original PK value from the row being edited (first column)
     var row = state.currentRows[editRowIdx];
-    var pkRawVal = (row && row.length > 0) ? row[0] : null;
-    var pkSql = formatSqlValue(pkRawVal, state.columns[0]);
+    if (!row) { setStatusText('编辑失败：找不到原始行数据'); return; }
 
-    // Build SET clause (skip PK column — index 0)
+    // Build SET clause — update all columns in the form
     var setParts = [];
     Object.keys(formData).forEach(function(colName) {
-      if (colName === pkCol) return;  // skip PK
       var col = findColumn(colName);
       setParts.push(quoteId(colName) + ' = ' + formatSqlValue(formData[colName], col));
     });
 
     if (setParts.length === 0) { setStatusText('没有需要更新的字段'); return; }
 
+    // Build WHERE clause using ALL original column values for exact row matching
+    // This correctly handles composite keys, floating-point values, and NULL columns
+    var whereParts = [];
+    for (var j = 0; j < state.columns.length; j++) {
+      var colDef = state.columns[j];
+      var origVal = j < row.length ? row[j] : null;
+      // Empty string represents NULL in goods_db protocol
+      if (origVal === null || origVal === undefined || origVal === '') {
+        whereParts.push(quoteId(colDef.name) + ' IS NULL');
+      } else {
+        whereParts.push(quoteId(colDef.name) + ' = ' + formatSqlValue(origVal, colDef));
+      }
+    }
+
     var sql = 'UPDATE ' + qualifiedTable(state.currentDb, state.currentTable) +
               ' SET ' + setParts.join(', ') +
-              ' WHERE ' + quoteId(pkCol) + ' = ' + pkSql + ';';
+              ' WHERE ' + whereParts.join(' AND ') + ';';
 
     setStatusText('执行 UPDATE...');
     executeSQL(sql).then(function(res) {
       if (res.success) {
-        setStatusText('更新成功 — ' + (res.affected_rows || 1) + ' 行受影响');
+        var affected = (res.affected_rows !== undefined) ? res.affected_rows : 0;
+        if (affected === 0) {
+          setStatusText('⚠ 更新未生效 — 目标行可能已被修改或删除');
+        } else {
+          setStatusText('✅ 更新成功 — ' + affected + ' 行受影响');
+        }
         refreshTable();
       } else {
-        alert('更新失败: ' + (res.error || '未知错误'));
-        setStatusText('更新失败');
+        var errMsg = res.error || '未知错误';
+        alert('❌ 更新失败:\n\n' + errMsg + '\n\n执行的SQL:\n' + sql);
+        setStatusText('❌ 更新失败: ' + errMsg);
       }
     });
   } else {
     // ---- INSERT ----
-    var colNames = Object.keys(formData).filter(function(c) { return formData[c] !== null; });
+    // Validate: reject if any NOT NULL column is left empty (skip auto-increment PK)
+    var missingFields = [];
+    state.columns.forEach(function(col) {
+      if (col.nullable === false && !col.is_primary_key) {
+        var v = formData[col.name];
+        if (v === null || v === undefined || String(v).trim() === '') {
+          missingFields.push(col.name);
+        }
+      }
+    });
+    if (missingFields.length > 0) {
+      alert('以下必填字段不能为空：\n  ' + missingFields.join(', ') +
+            '\n\n（标记 * 的字段必须填写，不能留空）');
+      setStatusText('新增取消：必填字段未填写');
+      // Reopen the form so the user can fix
+      showInsertModal();
+      return;
+    }
+
+    var colNames = Object.keys(formData);
     var quotedCols = colNames.map(function(c) { return quoteId(c); }).join(', ');
     var values = colNames.map(function(c) {
       return formatSqlValue(formData[c], findColumn(c));
@@ -1110,7 +1747,12 @@ function submitForm() {
     setStatusText('执行 INSERT...');
     executeSQL(sql).then(function(res) {
       if (res.success) {
-        setStatusText('新增成功 — ' + (res.affected_rows || 1) + ' 行受影响');
+        var affected = (res.affected_rows !== undefined) ? res.affected_rows : 0;
+        if (affected === 0) {
+          setStatusText('⚠ 新增未生效 — 可能因约束冲突被拒绝');
+        } else {
+          setStatusText('新增成功 — ' + affected + ' 行受影响');
+        }
         refreshTable();
       } else {
         alert('新增失败: ' + (res.error || '未知错误'));
@@ -1120,9 +1762,11 @@ function submitForm() {
   }
 }
 
-/** Format a value for SQL: NULL, number, or 'quoted string' */
+/** Format a value for SQL: NULL, number, or 'quoted string'.
+ *  Empty strings are treated as NULL because the goods_db text protocol
+ *  represents SQL NULL as \\N, which is stored as "" in the client. */
 function formatSqlValue(val, col) {
-  if (val === null || val === undefined) return 'NULL';
+  if (val === null || val === undefined || val === '') return 'NULL';
   if (col && isNumericType(col.type_name)) {
     var n = parseFloat(val);
     if (!isNaN(n) && isFinite(n)) return String(n);
@@ -1133,16 +1777,45 @@ function formatSqlValue(val, col) {
 }
 
 // ---- Delete ----
+// Cascade relationships: parent_table → [child_table, ...]
+var CASCADE_MAP = {
+  'warehouses': ['inventory', 'shipments'],
+  'products':   ['inventory', 'order_items'],
+  'customers':  ['orders'],
+  'orders':     ['order_items', 'shipments']
+};
+// Extended cascade: orders → [order_items] → [], but orders child of customers
+// Recursive: customers → orders → (order_items, shipments)
+
 function showDeleteConfirm(rowIndices) {
   var count = rowIndices.length;
   var msg;
   if (count === 1) {
     var pkCol = state.columns.length > 0 ? state.columns[0].name : 'id';
     var pkVal = state.currentRows[rowIndices[0]] ? state.currentRows[rowIndices[0]][0] : '?';
-    msg = '确定要删除记录 <b>' + escapeHtml(pkCol) + '=' + escapeHtml(String(pkVal)) + '</b> 吗？<br>此操作不可撤销。';
+    msg = '确定要删除记录 <b>' + escapeHtml(pkCol) + '=' + escapeHtml(String(pkVal)) + '</b> 吗？';
   } else {
-    msg = '确定要删除选中的 <b>' + count + '</b> 条记录吗？<br>此操作不可撤销。';
+    msg = '确定要删除选中的 <b>' + count + '</b> 条记录吗？';
   }
+
+  // Check for cascade effects
+  var tbl = state.currentTable;
+  var cascadeChildren = CASCADE_MAP[tbl] || [];
+  if (cascadeChildren.length > 0) {
+    msg += '<br><br><span style="color:var(--warn);">⚠️ 此操作将<b>级联删除</b>以下表中的关联数据：</span>';
+    for (var i = 0; i < cascadeChildren.length; i++) {
+      var child = cascadeChildren[i];
+      // Check if child is also a parent (grandchildren)
+      var grandchildren = CASCADE_MAP[child] || [];
+      if (grandchildren.length > 0) {
+        msg += '<br>  • <b>' + child + '</b> → 级联 <b>' + grandchildren.join(', ') + '</b>';
+      } else {
+        msg += '<br>  • <b>' + child + '</b>';
+      }
+    }
+  }
+  msg += '<br><br><span style="color:var(--danger);">此操作不可撤销。</span>';
+
   $('modal-confirm-msg').innerHTML = msg;
   $('modal-confirm').classList.add('visible');
   // Store indices for the confirm callback
@@ -1153,28 +1826,54 @@ function doDelete() {
   var indices = JSON.parse($('modal-confirm').dataset.indices || '[]');
   closeModal('modal-confirm');
   if (indices.length === 0) return;
+  if (state.columns.length === 0) {
+    alert('无法删除：没有列信息');
+    return;
+  }
 
-  var pkCol = state.columns.length > 0 ? state.columns[0].name : 'id';
-  var pkVals = indices.map(function(i) {
-    var val = state.currentRows[i] ? state.currentRows[i][0] : null;
-    if (val === null || val === undefined) return 'NULL';
-    var col = state.columns[0];
-    if (col && isNumericType(col.type_name)) return val;
-    return "'" + escapeSqlStr(String(val)) + "'";
-  });
+  // Build WHERE clauses using ALL column values for exact row matching.
+  // This safely handles composite primary keys (e.g. order_items, inventory)
+  // and single-column PKs alike.
+  var rowConditions = indices.map(function(i) {
+    var row = state.currentRows[i];
+    if (!row) return null;
+    var parts = [];
+    for (var j = 0; j < state.columns.length; j++) {
+      var col = state.columns[j];
+      var val = j < row.length ? row[j] : null;
+      // Empty string represents NULL in goods_db protocol
+      if (val === null || val === undefined || val === '') {
+        parts.push(quoteId(col.name) + ' IS NULL');
+      } else {
+        parts.push(quoteId(col.name) + ' = ' + formatSqlValue(val, col));
+      }
+    }
+    return '(' + parts.join(' AND ') + ')';
+  }).filter(function(c) { return c !== null; });
+
+  if (rowConditions.length === 0) {
+    setStatusText('没有可删除的行');
+    return;
+  }
 
   var sql = 'DELETE FROM ' + qualifiedTable(state.currentDb, state.currentTable) +
-            ' WHERE ' + quoteId(pkCol) + ' IN (' + pkVals.join(', ') + ');';
+            ' WHERE ' + rowConditions.join(' OR ') + ';';
 
   setStatusText('执行 DELETE...');
   executeSQL(sql).then(function(res) {
     if (res.success) {
-      setStatusText('删除成功 — ' + (res.affected_rows || indices.length) + ' 行受影响');
+      var deleted = (res.affected_rows !== undefined) ? res.affected_rows : 0;
+      if (deleted === 0) {
+        setStatusText('⚠ 未删除任何行 — 目标行可能已被删除');
+      } else {
+        setStatusText('✅ 删除成功 — ' + deleted + ' 行受影响');
+      }
       state.checkedRows = {};
       refreshTable();
     } else {
-      alert('删除失败: ' + (res.error || '未知错误'));
-      setStatusText('删除失败');
+      var errMsg = res.error || '未知错误';
+      alert('❌ 删除失败:\n\n' + errMsg + '\n\n执行的SQL:\n' + sql);
+      setStatusText('❌ 删除失败: ' + errMsg);
     }
   });
 }
@@ -1182,8 +1881,62 @@ function doDelete() {
 // ---- Refresh ----
 function refreshTable() {
   if (state.currentDb && state.currentTable) {
-    loadTableData(state.currentDb, state.currentTable, state.page);
+    refreshTableData(state.currentDb, state.currentTable, state.page);
   }
+}
+
+/** Re-execute SELECT with current filters/sort without re-fetching column metadata */
+function refreshTableData(dbName, tableName, page) {
+  showLoading(true);
+  emptyState.style.display = 'none';
+  dataTable.style.display = 'none';
+
+  var offset = (page - 1) * state.pageSize;
+  var sql = buildSelectSQL(dbName, tableName, offset, state.pageSize);
+  executeSQL(sql).then(function(res) {
+    showLoading(false);
+    if (!res || !res.success) {
+      showError((res && res.error) || '查询失败');
+      return;
+    }
+    // Merge res.columns type info into state.columns
+    if (res.columns && res.columns.length > 0 && state.columns.length > 0) {
+      for (var i = 0; i < Math.min(res.columns.length, state.columns.length); i++) {
+        if (res.columns[i].type_name && !state.columns[i].type_name) {
+          state.columns[i].type_name = res.columns[i].type_name;
+        }
+        if (res.columns[i].length && !state.columns[i].length) {
+          state.columns[i].length = res.columns[i].length;
+        }
+      }
+    }
+    state.currentRows = res.rows || [];
+    if (state.columns.length > 0) {
+      renderTable(state.columns, state.currentRows, res.exec_time_ms);
+    } else if (res.columns && res.columns.length > 0) {
+      renderTable(res.columns, state.currentRows, res.exec_time_ms);
+    } else {
+      state.currentRows = [];
+      renderTable([], [], 0);
+    }
+    renderPagination(page, state.currentRows.length);
+    setStatusText((state.currentRows ? state.currentRows.length : 0) + ' 行' +
+      (res.exec_time_ms !== undefined ? ' — ' + res.exec_time_ms + ' ms' : ''));
+  }).catch(function(e) {
+    showLoading(false);
+    showError('网络错误: ' + e.message);
+  });
+}
+
+// ===========================================================================
+// SQL Tab Refresh — update tab label if renamed
+// ===========================================================================
+function updateSqlTabLabel(tabId) {
+  var tabEl = $('content-tab-list').querySelector('[data-sql-tab="' + tabId + '"]');
+  if (!tabEl) return;
+  var tab = findSqlTab(tabId);
+  if (!tab) return;
+  tabEl.querySelector('span').textContent = '💻 ' + tab.label;
 }
 
 // ===========================================================================
@@ -1193,7 +1946,10 @@ function toggleFilterPanel() {
   if (filterPanel.classList.contains('visible')) {
     filterPanel.classList.remove('visible');
   } else {
-    if (state.columns.length === 0) return;
+    if (!state.currentTable || state.columns.length === 0) {
+      setStatusText('请先选择一个表');
+      return;
+    }
     buildFilterPanel();
     filterPanel.classList.add('visible');
   }
@@ -1243,7 +1999,8 @@ function applyFilters() {
   });
   state.page = 1;
   state.checkedRows = {};
-  loadTableData(state.currentDb, state.currentTable, 1);
+  updateFilterBtn();
+  refreshTableData(state.currentDb, state.currentTable, 1);
 }
 
 function clearFilters() {
@@ -1251,7 +2008,25 @@ function clearFilters() {
   filterPanel.querySelectorAll('input[data-col]').forEach(function(inp) { inp.value = ''; });
   state.page = 1;
   state.checkedRows = {};
-  loadTableData(state.currentDb, state.currentTable, 1);
+  updateFilterBtn();
+  refreshTableData(state.currentDb, state.currentTable, 1);
+}
+
+/** Update filter button appearance based on active filter count */
+function updateFilterBtn() {
+  var count = Object.keys(state.filters).length;
+  var btn = $('btn-toggle-filter');
+  if (count > 0) {
+    btn.textContent = '🔍 筛选 (' + count + ')';
+    btn.style.color = 'var(--accent)';
+    btn.style.borderColor = 'var(--accent)';
+    btn.title = '筛选条件已激活 (' + count + ' 个) — 点击隐藏筛选面板';
+  } else {
+    btn.textContent = '🔍 筛选';
+    btn.style.color = '';
+    btn.style.borderColor = '';
+    btn.title = '显示/隐藏筛选条件';
+  }
 }
 
 // ===========================================================================
@@ -1306,9 +2081,461 @@ function csvEscape(s) {
   return s;
 }
 
+// ---- Export JSON ----
+function exportJSON() {
+  if (!state.currentRows.length) { alert('没有数据可以导出。'); return; }
+  var header = state.columns.map(function(c) { return c.name; });
+  var data = state.currentRows.map(function(row) {
+    var obj = {};
+    header.forEach(function(h, i) { obj[h] = (i < row.length) ? row[i] : null; });
+    return obj;
+  });
+  var json = JSON.stringify(data, null, 2);
+  downloadBlob(json, 'application/json',
+    'export_' + (state.currentTable || 'data') + '_' +
+    new Date().toISOString().slice(0,19).replace(/[:]/g,'-') + '.json');
+}
+
+// ---- Export SQL INSERT ----
+function exportSQLInsert() {
+  if (!state.currentRows.length) { alert('没有数据可以导出。'); return; }
+  var tblName = qualifiedTable(state.currentDb, state.currentTable);
+  var colNames = state.columns.map(function(c) { return quoteId(c.name); }).join(', ');
+  var lines = [];
+  lines.push('-- Generated by goods_db_studio');
+  lines.push('-- Table: ' + tblName);
+  lines.push('-- Rows: ' + state.currentRows.length);
+  lines.push('');
+  state.currentRows.forEach(function(row) {
+    var vals = row.map(function(cell, i) {
+      if (cell === null || cell === undefined) return 'NULL';
+      var col = i < state.columns.length ? state.columns[i] : null;
+      if (col && isNumericType(col.type_name)) {
+        if (String(cell).trim() === '') return 'NULL';
+        var n = parseFloat(cell);
+        if (!isNaN(n) && isFinite(n)) return String(n);
+      }
+      return "'" + escapeSqlStr(String(cell)) + "'";
+    });
+    lines.push('INSERT INTO ' + tblName + ' (' + colNames + ') VALUES (' + vals.join(', ') + ');');
+  });
+  downloadBlob(lines.join('\n'), 'text/plain',
+    'export_' + (state.currentTable || 'data') + '_' +
+    new Date().toISOString().slice(0,19).replace(/[:]/g,'-') + '.sql');
+}
+
+function downloadBlob(content, mime, filename) {
+  var blob = new Blob([content], { type: mime + ';charset=utf-8;' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ---- Export dropdown menu ----
+function setupExportMenu() {
+  var exportBtn = $('btn-export');
+  var exportMenu = $('export-menu');
+  exportBtn.onclick = function(e) {
+    e.stopPropagation();
+    exportMenu.style.display = exportMenu.style.display === 'none' ? 'block' : 'none';
+  };
+  exportMenu.querySelectorAll('.ctx-item').forEach(function(item) {
+    item.onclick = function(e) {
+      e.stopPropagation();
+      exportMenu.style.display = 'none';
+      var fmt = item.dataset.fmt;
+      if (fmt === 'csv') exportCSV();
+      else if (fmt === 'json') exportJSON();
+      else if (fmt === 'sql') exportSQLInsert();
+    };
+  });
+  document.addEventListener('click', function() { exportMenu.style.display = 'none'; });
+}
+
 // ===========================================================================
-// Context Menu (right-click table name)
+// Multi-tab SQL Editor
 // ===========================================================================
+function setupContentTabs() {
+  $('content-tabs').style.display = 'flex';
+  $('btn-new-sql-tab').onclick = newSqlTab;
+  // Click tab handler
+  $('content-tab-list').addEventListener('click', function(e) {
+    var tab = e.target.closest('.content-tab');
+    if (!tab) return;
+    if (e.target.classList.contains('tab-close')) {
+      e.stopPropagation();
+      closeSqlTab(tab.dataset.sqlTab);
+      return;
+    }
+    activateTab(tab.dataset.tab);
+  });
+  activateTab('data');
+}
+
+function newSqlTab() {
+  var tabId = state.nextSqlTabId++;
+  var tabLabel = 'SQL ' + tabId;
+  state.sqlTabs.push({ id: tabId, label: tabLabel, sql: '', result: null });
+
+  var tabEl = document.createElement('div');
+  tabEl.className = 'content-tab';
+  tabEl.dataset.tab = 'sql' + tabId;
+  tabEl.dataset.sqlTab = tabId;
+  tabEl.innerHTML = '<span>💻 ' + tabLabel + '</span>' +
+    '<span class="tab-close" title="关闭标签">✕</span>';
+  $('content-tab-list').appendChild(tabEl);
+  activateTab('sql' + tabId);
+}
+
+function closeSqlTab(tabId) {
+  var idx = -1;
+  for (var i = 0; i < state.sqlTabs.length; i++) {
+    if (state.sqlTabs[i].id === parseInt(tabId)) { idx = i; break; }
+  }
+  if (idx < 0) return;
+  state.sqlTabs.splice(idx, 1);
+
+  var tabEl = $('content-tab-list').querySelector('[data-sql-tab="' + tabId + '"]');
+  if (tabEl) tabEl.remove();
+
+  if (state.activeSqlTab === parseInt(tabId)) {
+    // Switch to next SQL tab or data tab
+    if (state.sqlTabs.length > 0) {
+      var next = state.sqlTabs[Math.min(idx, state.sqlTabs.length - 1)];
+      activateTab('sql' + next.id);
+    } else {
+      activateTab('data');
+    }
+  }
+}
+
+function activateTab(tabName) {
+  // Update tab styling
+  $('content-tab-list').querySelectorAll('.content-tab').forEach(function(t) {
+    t.classList.toggle('active', t.dataset.tab === tabName);
+  });
+
+  var isData = tabName === 'data';
+  $('table-header').style.display = isData ? 'flex' : 'none';
+  $('toolbar').style.display = isData ? 'flex' : 'none';
+  $('filter-panel').classList.remove('visible');
+  $('sql-editor-area').style.display = isData ? 'none' : 'flex';
+  $('pagination').style.display = isData ? 'flex' : 'none';
+
+  if (!isData) {
+    var sqlTabId = parseInt(tabName.replace('sql', ''));
+    state.activeSqlTab = sqlTabId;
+    var tab = findSqlTab(sqlTabId);
+    if (tab) {
+      $('sql-editor-text').value = tab.sql || '';
+      showSqlResult(tab.result);
+    }
+  } else {
+    state.activeSqlTab = -1;
+    // Show data table if we have a current table
+    if (state.currentTable) {
+      dataTable.style.display = '';
+      emptyState.style.display = 'none';
+    } else {
+      dataTable.style.display = 'none';
+      emptyState.style.display = 'flex';
+    }
+  }
+}
+
+function findSqlTab(id) {
+  for (var i = 0; i < state.sqlTabs.length; i++) {
+    if (state.sqlTabs[i].id === id) return state.sqlTabs[i];
+  }
+  return null;
+}
+
+function saveCurrentSql() {
+  if (state.activeSqlTab < 0) return;
+  var tab = findSqlTab(state.activeSqlTab);
+  if (tab) tab.sql = $('sql-editor-text').value;
+}
+
+// ---- SQL Execution ----
+function executeSQLFromEditor() {
+  saveCurrentSql();
+  var sql = $('sql-editor-text').value.trim();
+  if (!sql) { $('sql-status').textContent = '没有 SQL 语句'; return; }
+
+  $('sql-status').textContent = '执行中...';
+  $('sql-status').style.color = 'var(--warning)';
+  $('btn-sql-execute').disabled = true;
+
+  // Save to history
+  addToHistory(sql);
+
+  executeSQL(sql).then(function(res) {
+    $('btn-sql-execute').disabled = false;
+    if (res.success) {
+      $('sql-status').textContent = res.columns.length + ' 列, ' +
+        (res.rows ? res.rows.length : 0) + ' 行' +
+        (res.exec_time_ms !== undefined ? ' — ' + res.exec_time_ms + ' ms' : '');
+      $('sql-status').style.color = 'var(--success)';
+    } else {
+      $('sql-status').textContent = '错误: ' + (res.error || '未知');
+      $('sql-status').style.color = 'var(--danger)';
+    }
+    showSqlResult(res);
+    if (state.activeSqlTab >= 0) {
+      var tab = findSqlTab(state.activeSqlTab);
+      if (tab) tab.result = res;
+    }
+  }).catch(function(e) {
+    $('btn-sql-execute').disabled = false;
+    $('sql-status').textContent = '网络错误: ' + e.message;
+    $('sql-status').style.color = 'var(--danger)';
+  });
+}
+
+function showSqlResult(res) {
+  var tableWrap = $('sql-result-table-wrap');
+  var msg = $('sql-result-message');
+  tableWrap.innerHTML = '';
+  msg.textContent = '';
+
+  if (!res) {
+    $('sql-result-area').style.display = 'none';
+    return;
+  }
+  $('sql-result-area').style.display = 'flex';
+
+  if (!res.success) {
+    msg.textContent = '❌ ' + (res.error || '查询失败');
+    msg.style.color = 'var(--danger)';
+    return;
+  }
+
+  if (res.affected_rows !== undefined && res.columns.length === 0) {
+    msg.textContent = '✓ 查询成功 — ' + res.affected_rows + ' 行受影响' +
+      (res.exec_time_ms !== undefined ? ' (' + res.exec_time_ms + ' ms)' : '');
+    msg.style.color = 'var(--success)';
+    return;
+  }
+
+  if (!res.columns || !res.rows) {
+    msg.textContent = '✓ 查询成功' +
+      (res.exec_time_ms !== undefined ? ' (' + res.exec_time_ms + ' ms)' : '');
+    msg.style.color = 'var(--success)';
+    return;
+  }
+
+  msg.textContent = res.columns.length + ' 列, ' + res.rows.length + ' 行' +
+    (res.exec_time_ms !== undefined ? ' (' + res.exec_time_ms + ' ms)' : '');
+  msg.style.color = 'var(--success)';
+
+  // Render result table
+  var tbl = document.createElement('table');
+  tbl.style.cssText = 'width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12px;table-layout:auto;';
+
+  var thead = document.createElement('thead');
+  var tr = document.createElement('tr');
+  res.columns.forEach(function(col) {
+    var th = document.createElement('th');
+    th.style.cssText = 'background:var(--bg2);padding:5px 10px;text-align:left;border-bottom:2px solid var(--accent);white-space:nowrap;position:sticky;top:0;z-index:2;';
+    th.textContent = col.name;
+    th.title = col.name + (col.type_name ? ' (' + col.type_name + ')' : '');
+    tr.appendChild(th);
+  });
+  thead.appendChild(tr);
+  tbl.appendChild(thead);
+
+  // Use fixed layout for wider result sets (>=4 columns) for proper alignment
+  var useFixed = res.columns.length >= 4;
+  if (useFixed) {
+    tbl.style.tableLayout = 'fixed';
+  }
+
+  var tbody = document.createElement('tbody');
+  var maxRows = Math.min(res.rows.length, 1000);
+  for (var r = 0; r < maxRows; r++) {
+    var row = res.rows[r];
+    var tr2 = document.createElement('tr');
+    row.forEach(function(cell, c) {
+      var td = document.createElement('td');
+      var cellStyle = 'padding:3px 10px;border-bottom:1px solid var(--border);';
+      if (useFixed) {
+        cellStyle += 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+      }
+      td.style.cssText = cellStyle;
+      if (cell === null || cell === undefined) {
+        td.innerHTML = '<span class="null">(NULL)</span>';
+      } else {
+        td.textContent = cell;
+        if (useFixed) td.title = String(cell);
+      }
+      tr2.appendChild(td);
+    });
+    if (r % 2 === 1) tr2.style.backgroundColor = 'rgba(255,255,255,0.015)';
+    tbody.appendChild(tr2);
+  }
+  tbl.appendChild(tbody);
+
+  if (res.rows.length > 1000) {
+    msg.textContent += ' (显示前 1000 行)';
+  }
+
+  tableWrap.appendChild(tbl);
+}
+
+// ===========================================================================
+// Query History (localStorage, last 50 items)
+// ===========================================================================
+var HISTORY_KEY = 'goods_db_query_history';
+var MAX_HISTORY = 50;
+
+function loadHistory() {
+  try {
+    var saved = JSON.parse(localStorage.getItem(HISTORY_KEY));
+    state.queryHistory = Array.isArray(saved) ? saved : [];
+  } catch(e) { state.queryHistory = []; }
+}
+
+function saveHistory() {
+  try {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(state.queryHistory));
+  } catch(e) {}
+}
+
+function addToHistory(sql) {
+  // Remove duplicates
+  state.queryHistory = state.queryHistory.filter(function(h) { return h.sql !== sql; });
+  state.queryHistory.unshift({
+    sql: sql,
+    time: new Date().toISOString(),
+    host: state.host + ':' + state.port
+  });
+  if (state.queryHistory.length > MAX_HISTORY) state.queryHistory.length = MAX_HISTORY;
+  saveHistory();
+}
+
+function showHistoryModal() {
+  var body = $('modal-history-body');
+  body.innerHTML = '';
+
+  if (state.queryHistory.length === 0) {
+    body.innerHTML = '<div class="history-empty">暂无查询历史</div>';
+  } else {
+    state.queryHistory.forEach(function(entry, idx) {
+      var div = document.createElement('div');
+      div.className = 'history-item';
+      var sqlSpan = document.createElement('span');
+      sqlSpan.className = 'h-sql';
+      sqlSpan.textContent = entry.sql;
+      sqlSpan.title = entry.sql;
+      var timeSpan = document.createElement('span');
+      timeSpan.className = 'h-time';
+      var d = new Date(entry.time);
+      timeSpan.textContent = d.toLocaleString();
+      div.appendChild(sqlSpan);
+      div.appendChild(timeSpan);
+      div.onclick = function() {
+        $('sql-editor-text').value = entry.sql;
+        closeModal('modal-history');
+        // Switch to a SQL tab if not already active
+        if (state.activeSqlTab < 0) {
+          if (state.sqlTabs.length === 0) newSqlTab();
+          else activateTab('sql' + state.sqlTabs[state.sqlTabs.length - 1].id);
+        }
+      };
+      body.appendChild(div);
+    });
+  }
+  $('modal-history').classList.add('visible');
+}
+
+function clearHistory() {
+  state.queryHistory = [];
+  saveHistory();
+  showHistoryModal();
+}
+
+// ===========================================================================
+// Object Tree Improvements
+// ===========================================================================
+function setupTreeImprovements() {
+  // Delegate double-click on tree items to browse table
+  treeEl.addEventListener('dblclick', function(e) {
+    var item = e.target.closest('.tree-item');
+    if (!item) return;
+    if (item.dataset.type === 'table') {
+      selectTable(item.dataset.db, item.dataset.table);
+    }
+  });
+}
+
+// Update createTableNode to add double-click handler
+var origCreateTableNode = createTableNode;
+createTableNode = function(dbName, tableName) {
+  var row = origCreateTableNode(dbName, tableName);
+  row.ondblclick = function(e) { e.stopPropagation(); selectTable(dbName, tableName); };
+  return row;
+};
+
+// Extend showTableCtxMenu with more options
+var origShowTableCtxMenu = showTableCtxMenu;
+showTableCtxMenu = function(x, y, dbName, tableName) {
+  ctxMenu.innerHTML = '';
+  var items = [
+    { label: '📋 浏览数据', action: function() { selectTable(dbName, tableName); } },
+    { label: '📐 查看结构', action: function() {
+      fetch('/api/columns?db=' + encodeURIComponent(dbName) + '&table=' + encodeURIComponent(tableName))
+        .then(function(r) { return r.json(); })
+        .then(function(cols) {
+          state.columns = cols || [];
+          state.currentDb = dbName;
+          state.currentTable = tableName;
+          showStructureModal();
+        });
+    }},
+    { sep: true },
+    { label: '📝 SELECT * LIMIT 100', action: function() {
+      var sql = 'SELECT * FROM ' + qualifiedTable(dbName, tableName) + ' LIMIT 100;';
+      // Switch to SQL tab
+      if (state.sqlTabs.length === 0) {
+        newSqlTab();
+      } else if (state.activeSqlTab < 0) {
+        activateTab('sql' + state.sqlTabs[state.sqlTabs.length - 1].id);
+      }
+      $('sql-editor-text').value = sql;
+    }},
+    { label: '📋 复制表名', action: function() {
+      navigator.clipboard.writeText(qualifiedTable(dbName, tableName)).then(function() {
+        setStatusText('已复制: ' + qualifiedTable(dbName, tableName));
+      }).catch(function() {});
+    }},
+    { sep: true },
+    { label: '🔢 行数统计', action: function() {
+      var sql = 'SELECT COUNT(*) FROM ' + qualifiedTable(dbName, tableName) + ';';
+      executeSQL(sql).then(function(res) {
+        if (res.success && res.rows && res.rows[0]) {
+          var count = res.rows[0][0];
+          setStatusText(qualifiedTable(dbName, tableName) + ' — ' + count + ' 行');
+        }
+      });
+    }},
+  ];
+  items.forEach(function(item) {
+    if (item.sep) {
+      var sep = document.createElement('div'); sep.className = 'ctx-sep';
+      ctxMenu.appendChild(sep);
+    } else {
+      var div = document.createElement('div');
+      div.className = 'ctx-item';
+      div.textContent = item.label;
+      div.onclick = function() { hideCtxMenu(); item.action(); };
+      ctxMenu.appendChild(div);
+    }
+  });
+  ctxMenu.style.display = 'block';
+  ctxMenu.style.left = Math.min(x, window.innerWidth - 200) + 'px';
+  ctxMenu.style.top = Math.min(y, window.innerHeight - 180) + 'px';
+};
 function showTableCtxMenu(x, y, dbName, tableName) {
   ctxMenu.innerHTML = '';
   var items = [
@@ -1352,14 +2579,14 @@ document.addEventListener('click', hideCtxMenu);
 function closeModal(id) { $(id).classList.remove('visible'); }
 
 // Close modals on overlay click
-['modal-form', 'modal-confirm', 'modal-struct'].forEach(function(id) {
+['modal-form', 'modal-confirm', 'modal-struct', 'modal-history', 'modal-users', 'modal-user-form', 'modal-privs'].forEach(function(id) {
   $(id).addEventListener('click', function(e) { if (e.target === $(id)) closeModal(id); });
 });
 
 // Close modals on Escape
 document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape') {
-    ['modal-form', 'modal-confirm', 'modal-struct'].forEach(function(id) {
+    ['modal-form', 'modal-confirm', 'modal-struct', 'modal-history', 'modal-users', 'modal-user-form', 'modal-privs'].forEach(function(id) {
       if ($(id).classList.contains('visible')) closeModal(id);
     });
   }
@@ -1396,6 +2623,7 @@ function showError(msg) {
 function clearTable() {
   state.currentDb = null; state.currentTable = null;
   state.columns = []; state.currentRows = [];
+  state.filters = {}; state.checkedRows = {};
   tableHeader.style.display = 'none';
   toolbar.style.display = 'none';
   filterPanel.classList.remove('visible');
@@ -1413,8 +2641,28 @@ function setStatusText(msg) {
 // ===========================================================================
 // Event Bindings
 // ===========================================================================
-btnConnect.onclick = doConnect;
-btnDisconnect.onclick = doDisconnect;
+if (btnConnect) btnConnect.onclick = doConnect;
+if (btnDisconnect) btnDisconnect.onclick = doDisconnect;
+
+// ---- Login ----
+$('btn-login').onclick = doLogin;
+$('login-pass').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') doLogin();
+});
+$('btn-lock-screen').onclick = doLockScreen;
+
+// ---- User Management ----
+$('user-badge').onclick = showUserManagement;
+$('btn-add-user').onclick = showAddUserForm;
+$('btn-refresh-users').onclick = refreshUserList;
+$('btn-show-grants').onclick = showMyGrants;
+$('modal-users-close').onclick = function() { closeModal('modal-users'); };
+$('modal-user-form-close').onclick = function() { closeModal('modal-user-form'); };
+$('modal-user-form-cancel').onclick = function() { closeModal('modal-user-form'); };
+$('modal-user-form-save').onclick = saveUserForm;
+$('modal-privs-close').onclick = function() { closeModal('modal-privs'); };
+$('modal-privs-cancel').onclick = function() { closeModal('modal-privs'); };
+$('modal-privs-save').onclick = savePrivileges;
 $('btn-refresh-tree').onclick = function() { if (state.connected) loadDatabases(); };
 $('btn-insert').onclick = showInsertModal;
 $('btn-delete-sel').onclick = function() {
@@ -1423,34 +2671,95 @@ $('btn-delete-sel').onclick = function() {
 };
 $('btn-toggle-filter').onclick = toggleFilterPanel;
 $('btn-refresh-table').onclick = refreshTable;
-$('btn-export').onclick = exportCSV;
+// Export is handled by setupExportMenu() (multi-format dropdown)
+setupExportMenu();
 $('btn-view-struct').onclick = showStructureModal;
 
 // Keyboard shortcuts
 document.addEventListener('keydown', function(e) {
-  if (e.key === 'F5') { e.preventDefault(); refreshTable(); }
-  if (e.ctrlKey && e.key === 'f') { e.preventDefault(); toggleFilterPanel(); }
-  if (e.ctrlKey && e.key === 'n') { e.preventDefault(); showInsertModal(); }
+  // F5: execute SQL in editor or refresh table in data mode
+  if (e.key === 'F5') {
+    e.preventDefault();
+    if (state.activeSqlTab >= 0) {
+      executeSQLFromEditor();
+    } else {
+      refreshTable();
+    }
+  }
+  // Ctrl+Enter: execute SQL in editor
+  if (e.ctrlKey && e.key === 'Enter') {
+    e.preventDefault();
+    if (state.activeSqlTab >= 0) executeSQLFromEditor();
+  }
+  if (e.ctrlKey && e.key === 'f' && state.activeSqlTab < 0) { e.preventDefault(); toggleFilterPanel(); }
+  if (e.ctrlKey && e.key === 'n' && state.activeSqlTab < 0) { e.preventDefault(); showInsertModal(); }
+  if (e.ctrlKey && e.key === 't') { e.preventDefault(); newSqlTab(); }
 });
+
+// ---- SQL Editor event bindings ----
+$('btn-sql-execute').onclick = executeSQLFromEditor;
+$('btn-sql-clear').onclick = function() { $('sql-editor-text').value = ''; $('sql-editor-text').focus(); };
+$('btn-sql-history').onclick = showHistoryModal;
+$('btn-sql-stop').onclick = function() { $('sql-status').textContent = '已停止'; };
+
+// Auto-save SQL content on input
+$('sql-editor-text').addEventListener('input', function() { saveCurrentSql(); });
+
+// ---- History Modal bindings ----
+$('modal-history-close').onclick = function() { closeModal('modal-history'); };
+$('modal-history-ok').onclick = function() { closeModal('modal-history'); };
+$('btn-clear-history').onclick = clearHistory;
+
+// ---- Initialize ----
+setupContentTabs();
+setupTreeImprovements();
 
 // ===========================================================================
 // Init
 // ===========================================================================
 loadConnInfo();
+loadHistory();
 
-// Check initial connection status
+// Show login screen on load (main UI hidden until successful login)
+$('login-screen').classList.remove('hidden');
+$('conn-bar').style.display = 'none';
+
+// Focus the most likely field on login screen
+setTimeout(function() {
+  if (!$('login-user').value || $('login-user').value === 'root') {
+    $('login-pass').focus();
+  } else {
+    $('login-user').focus();
+  }
+}, 200);
+
+// If server already has an active connection (page refresh), auto-show main UI
 fetch('/api/status').then(function(r) { return r.json(); }).then(function(res) {
-  if (res.success) {
-    state.connected = true;
-    state.host = $('c-host').value || 'localhost';
-    state.port = parseInt($('c-port').value) || 3307;
-    btnConnect.disabled = true; btnDisconnect.disabled = false;
-    setStatus('ok', '● 已连接: ' + state.host + ':' + state.port);
-    loadDatabases();
+  if (res.success && !state.loggedIn) {
+    // Try to resume session using saved credentials
+    var saved = null;
+    try { saved = JSON.parse(localStorage.getItem('goods_db_conn')); } catch(e) {}
+    if (saved && saved.user) {
+      state.host = saved.host || 'localhost';
+      state.port = saved.port || 3307;
+      state.user = saved.user;
+      state.password = saved.password || '';
+      state.db = saved.db || '';
+      state.connected = true;
+      state.loggedIn = true;
+      $('login-screen').classList.add('hidden');
+      $('conn-bar').style.display = 'flex';
+      $('user-display').textContent = state.user;
+      updateRoleTag(state.user);
+      $('conn-host-display').textContent = state.host;
+      $('conn-port-display').textContent = state.port;
+      setStatus('ok', '● ' + state.user + '@' + state.host + ':' + state.port);
+      loadDatabases();
+    }
   }
 }).catch(function() {});
 
-console.log('goods_db_studio Data Browser ready');
+console.log('goods_db_studio ready — login required');
 
 })();
 </script>

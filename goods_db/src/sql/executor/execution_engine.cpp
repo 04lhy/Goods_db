@@ -1,5 +1,6 @@
 #include "sql/executor/execution_engine.h"
 
+#include <algorithm>
 #include <cctype>
 #include <set>
 #include <sstream>
@@ -12,10 +13,13 @@
 #include "sql/goods_handler.h"
 #include "sql/handler.h"
 #include "sql/log/log_manager.h"
+#include "sql/network/connection.h"
 #include "sql/optimizer/optimizer.h"
+#include "sql/parser/ast.h"
 #include "sql/parser/parser.h"
 #include "sql/planner/planner.h"
 #include "sql/security/auth_manager.h"
+#include "sql/server/connection_handler.h"
 
 namespace goods_db {
 
@@ -41,11 +45,25 @@ int ExecutionEngine::ExecuteSQL(const std::string& sql,
                                   std::vector<Tuple>* results,
                                   const Schema** output_schema) {
     last_error_.clear();
+    query_counter_++;
 
     // ---- Pre-process: handle SHOW commands (not supported by the SQL parser) ----
     std::string upper_sql = sql;
     for (auto& c : upper_sql) c = static_cast<char>(toupper(static_cast<unsigned char>(c)));
 
+    if (upper_sql.rfind("SHUTDOWN", 0) == 0) {
+        if (!CheckAdminAccess()) return -1;
+        return ExecuteShutdown(results, output_schema);
+    }
+    if (upper_sql.rfind("SHOW STATUS", 0) == 0) {
+        return ExecuteShowStatus(results, output_schema);
+    }
+    if (upper_sql.rfind("SHOW PROCESSLIST", 0) == 0) {
+        return ExecuteShowProcesslist(results, output_schema);
+    }
+    if (upper_sql.rfind("SHOW USERS", 0) == 0) {
+        return ExecuteShowUsers(results, output_schema);
+    }
     if (upper_sql.rfind("SHOW DATABASES", 0) == 0 || upper_sql.rfind("SHOW SCHEMAS", 0) == 0) {
         return ExecuteShowDatabases(results, output_schema);
     }
@@ -62,14 +80,27 @@ int ExecutionEngine::ExecuteSQL(const std::string& sql,
     // Handle CREATE DATABASE / DROP DATABASE (bypass parser, as libpg_query may not support them)
     if (upper_sql.rfind("CREATE DATABASE ", 0) == 0 ||
         upper_sql.rfind("CREATE SCHEMA ", 0) == 0) {
+        if (!CheckPrivilegeForStatement(Privilege::CREATE, "*")) return -1;
         return ExecuteCreateDatabase(sql, results, output_schema);
     }
     if (upper_sql.rfind("DROP DATABASE ", 0) == 0 ||
         upper_sql.rfind("DROP SCHEMA ", 0) == 0) {
+        if (!CheckPrivilegeForStatement(Privilege::DROP, "*")) return -1;
         return ExecuteDropDatabase(sql, results, output_schema);
     }
 
     // ---- Security commands ----------------------------------------------------
+    if (upper_sql.rfind("CREATE USER ", 0) == 0 ||
+        upper_sql.rfind("DROP USER ", 0) == 0 ||
+        upper_sql.rfind("ALTER USER ", 0) == 0 ||
+        upper_sql.rfind("SET PASSWORD", 0) == 0 ||
+        upper_sql.rfind("GRANT ", 0) == 0 ||
+        upper_sql.rfind("REVOKE ", 0) == 0 ||
+        upper_sql == "RELOAD" ||
+        upper_sql.rfind("FLUSH HOSTS", 0) == 0 ||
+        upper_sql.rfind("FLUSH PRIVILEGES", 0) == 0) {
+        if (!CheckAdminAccess()) return -1;
+    }
     if (upper_sql.rfind("CREATE USER ", 0) == 0) {
         return ExecuteCreateUser(sql, results, output_schema);
     }
@@ -88,8 +119,20 @@ int ExecutionEngine::ExecuteSQL(const std::string& sql,
     if (upper_sql.rfind("REVOKE ", 0) == 0) {
         return ExecuteRevoke(sql, results, output_schema);
     }
+    if (upper_sql == "RELOAD") {
+        return ExecuteFlushPrivileges(results, output_schema);
+    }
+    if (upper_sql.rfind("FLUSH HOSTS", 0) == 0) {
+        return ExecuteFlushHosts(results, output_schema);
+    }
     if (upper_sql.rfind("FLUSH PRIVILEGES", 0) == 0) {
         return ExecuteFlushPrivileges(results, output_schema);
+    }
+    if (upper_sql.rfind("KILL ", 0) == 0) {
+        if (!CheckAdminAccess()) return -1;
+    }
+    if (upper_sql.rfind("KILL ", 0) == 0) {
+        return ExecuteKill(sql, results, output_schema);
     }
 
     // ---- Transaction control commands -----------------------------------------
@@ -126,6 +169,18 @@ int ExecutionEngine::ExecuteSQL(const std::string& sql,
     }
 
     // ---- Log management commands ----------------------------------------------
+    if (upper_sql.rfind("SHOW GRANTS", 0) == 0) {
+        return ExecuteShowGrants(sql, results, output_schema);
+    }
+    if (upper_sql.rfind("SHOW ERRORLOG", 0) == 0) {
+        return ExecuteShowErrorLog(sql, results, output_schema);
+    }
+    if (upper_sql.rfind("SHOW QUERYLOG", 0) == 0) {
+        return ExecuteShowQueryLog(sql, results, output_schema);
+    }
+    if (upper_sql.rfind("SHOW BINARYLOG", 0) == 0) {
+        return ExecuteShowBinaryLog(sql, results, output_schema);
+    }
     if (upper_sql.rfind("SHOW LOGS", 0) == 0) {
         return ExecuteShowLogs(results, output_schema);
     }
@@ -135,6 +190,9 @@ int ExecutionEngine::ExecuteSQL(const std::string& sql,
     if (upper_sql.rfind("SHOW MASTER STATUS", 0) == 0) {
         return ExecuteShowMasterStatus(results, output_schema);
     }
+    if (upper_sql.rfind("FLUSH TABLES", 0) == 0) {
+        return ExecuteFlushTables(results, output_schema);
+    }
     if (upper_sql.rfind("FLUSH LOGS", 0) == 0) {
         return ExecuteFlushLogs(results, output_schema);
     }
@@ -143,6 +201,9 @@ int ExecutionEngine::ExecuteSQL(const std::string& sql,
     }
     if (upper_sql.rfind("RESET MASTER", 0) == 0) {
         return ExecuteResetMaster(results, output_schema);
+    }
+    if (upper_sql.rfind("REGISTER_FK ", 0) == 0) {
+        return ExecuteRegisterFk(sql, results, output_schema);
     }
 
     // Step 1: Parse
@@ -157,6 +218,16 @@ int ExecutionEngine::ExecuteSQL(const std::string& sql,
     if (ast_stmts.empty()) {
         last_error_ = "No statements parsed";
         return -1;
+    }
+
+    // ---- Permission check: DML / DDL statements ---------------------------
+    if (auth_mgr_ && !current_user_.empty()) {
+        std::string table_name = ExtractTableName(ast_stmts[0].get());
+        Privilege required = GetRequiredPrivilege(
+            static_cast<uint8_t>(ast_stmts[0]->GetType()));
+        if (!CheckPrivilegeForStatement(required, table_name)) {
+            return -1;
+        }
     }
 
     // Step 2: Bind
@@ -380,7 +451,7 @@ int ExecutionEngine::ExecuteShowColumns(const std::string& sql,
             }
             row.push_back(Value::CreateVarchar(type_str));
             row.push_back(Value::CreateVarchar(col.is_nullable ? "YES" : "NO"));
-            row.push_back(Value::CreateVarchar(""));
+            row.push_back(Value::CreateVarchar(col.is_primary_key ? "PRI" : ""));
             row.push_back(Value::CreateVarchar(col.is_nullable ? "NULL" : ""));
             row.push_back(Value::CreateVarchar(""));
             results->push_back(Tuple::CreateFromValues(row, &show_col_schema));
@@ -1247,6 +1318,660 @@ int ExecutionEngine::ExecuteResetMaster(std::vector<Tuple>* /*results*/,
     }
 
     log_mgr_->GetBinlogWriter().Reset();
+    return 0;
+}
+
+// =============================================================================
+// New administrative command handlers (Day 2)
+// =============================================================================
+
+int ExecutionEngine::ExecuteShutdown(std::vector<Tuple>* /*results*/,
+                                      const Schema** /*output_schema*/) {
+    if (!shutdown_callback_) {
+        last_error_ = "Shutdown not supported (no callback registered)";
+        return -1;
+    }
+    shutdown_callback_();
+    return 0;
+}
+
+int ExecutionEngine::ExecuteShowStatus(std::vector<Tuple>* results,
+                                        const Schema** output_schema) {
+    static Schema status_schema({
+        Column("Variable_name", TypeId::VARCHAR, 128),
+        Column("Value", TypeId::VARCHAR, 256),
+    });
+    if (output_schema) *output_schema = &status_schema;
+    if (!results) return 0;
+
+    auto add_var = [&](const std::string& name, const std::string& val) {
+        std::vector<Value> row;
+        row.push_back(Value::CreateVarchar(name));
+        row.push_back(Value::CreateVarchar(val));
+        results->push_back(Tuple::CreateFromValues(row, &status_schema));
+    };
+
+    // Uptime
+    auto now = std::chrono::steady_clock::now();
+    int64_t uptime = std::chrono::duration_cast<std::chrono::seconds>(
+        now - server_start_time_).count();
+    add_var("uptime", std::to_string(uptime));
+
+    // Queries
+    uint64_t qc = query_counter_.load();
+    add_var("queries", std::to_string(qc));
+    add_var("questions", std::to_string(qc));
+    add_var("queries_per_second",
+            uptime > 0 ? std::to_string(static_cast<double>(qc) / uptime) : "0");
+
+    // Connections
+    uint64_t active = Connection::GetActiveConnectionCount();
+    uint64_t total = Connection::GetTotalConnections();
+    add_var("threads_connected", std::to_string(active));
+    add_var("max_connections", "151");
+    add_var("max_used_connections", std::to_string(total));
+
+    // Bytes transferred
+    add_var("bytes_received",
+            std::to_string(Connection::GetTotalBytesReceived()));
+    add_var("bytes_sent",
+            std::to_string(Connection::GetTotalBytesSent()));
+
+    // Buffer pool
+    if (bpm_) {
+        add_var("buffer_pool_size", std::to_string(bpm_->GetPoolSize()));
+        add_var("buffer_pool_pages_free",
+                std::to_string(bpm_->GetFreeFrameCount()));
+        add_var("buffer_pool_pages_dirty",
+                std::to_string(bpm_->GetDirtyPageCount()));
+        add_var("buffer_pool_hit_rate",
+                std::to_string(bpm_->GetHitRate() * 100) + "%");
+        add_var("buffer_pool_read_requests",
+                std::to_string(qc > 0 ? qc : 1));
+        add_var("buffer_pool_reads", "0");
+    } else {
+        add_var("buffer_pool_size", "0");
+        add_var("buffer_pool_pages_free", "0");
+        add_var("buffer_pool_hit_rate", "0.0%");
+        add_var("buffer_pool_dirty_pages", "0");
+    }
+
+    add_var("version", "goods_db v0.1.0");
+    add_var("server_id", "1");
+
+    return 0;
+}
+
+int ExecutionEngine::ExecuteShowProcesslist(std::vector<Tuple>* results,
+                                             const Schema** output_schema) {
+    static Schema proc_schema({
+        Column("Id", TypeId::INTEGER),
+        Column("User", TypeId::VARCHAR, 64),
+        Column("Host", TypeId::VARCHAR, 128),
+        Column("db", TypeId::VARCHAR, 128),
+        Column("Command", TypeId::VARCHAR, 32),
+        Column("Time", TypeId::INTEGER),
+        Column("State", TypeId::VARCHAR, 64),
+        Column("Info", TypeId::VARCHAR, 1024),
+    });
+    if (output_schema) *output_schema = &proc_schema;
+    if (!results) return 0;
+
+    std::lock_guard<std::mutex> lock(ConnectionHandler::GetRegistryMutex());
+    for (const auto& [id, handler] : ConnectionHandler::GetRegistry()) {
+        auto* conn = handler->GetConnection();
+        if (!conn) continue;
+
+        std::vector<Value> row;
+        row.push_back(Value::CreateInteger(static_cast<int32_t>(id)));
+        row.push_back(Value::CreateVarchar(conn->GetUser()));
+        row.push_back(Value::CreateVarchar(
+            conn->GetRemoteAddr() + ":" + std::to_string(conn->GetRemotePort())));
+        row.push_back(Value::CreateVarchar(conn->GetDatabase()));
+
+        // Map connection state to command name
+        std::string cmd;
+        switch (conn->GetState()) {
+            case Connection::State::INIT:     cmd = "Connect"; break;
+            case Connection::State::AUTH:     cmd = "Authenticate"; break;
+            case Connection::State::READY:    cmd = "Sleep"; break;
+            case Connection::State::QUERYING: cmd = "Query"; break;
+            case Connection::State::SENDING:  cmd = "Send"; break;
+            case Connection::State::CLOSING:  cmd = "Close"; break;
+            default: cmd = "Unknown"; break;
+        }
+        row.push_back(Value::CreateVarchar(cmd));
+        row.push_back(Value::CreateInteger(0));  // Time (seconds in current state)
+
+        // State detail
+        std::string state_str;
+        switch (conn->GetState()) {
+            case Connection::State::QUERYING: state_str = "executing"; break;
+            case Connection::State::READY:    state_str = ""; break;
+            case Connection::State::SENDING:  state_str = "Writing to net"; break;
+            default: state_str = ""; break;
+        }
+        row.push_back(Value::CreateVarchar(state_str));
+
+        // Currently executing query
+        row.push_back(Value::CreateVarchar(handler->GetCurrentQuery()));
+
+        results->push_back(Tuple::CreateFromValues(row, &proc_schema));
+    }
+    return 0;
+}
+
+int ExecutionEngine::ExecuteFlushHosts(std::vector<Tuple>* /*results*/,
+                                        const Schema** /*output_schema*/) {
+    if (!auth_mgr_) {
+        last_error_ = "AuthManager not available";
+        return -1;
+    }
+    auth_mgr_->ClearBlockList();
+    return 0;
+}
+
+int ExecutionEngine::ExecuteFlushTables(std::vector<Tuple>* /*results*/,
+                                         const Schema** /*output_schema*/) {
+    // No-op: no table open cache to flush in this implementation.
+    // Flush buffer pool dirty pages to disk as a best-effort operation.
+    if (bpm_) {
+        bpm_->FlushAllPages();
+    }
+    return 0;
+}
+
+int ExecutionEngine::ExecuteKill(const std::string& sql,
+                                  std::vector<Tuple>* /*results*/,
+                                  const Schema** /*output_schema*/) {
+    // Parse: KILL <connection_id>
+    size_t pos = 5;  // strlen("KILL ")
+    while (pos < sql.size() && isspace(static_cast<unsigned char>(sql[pos]))) pos++;
+    std::string id_str;
+    while (pos < sql.size() && isdigit(static_cast<unsigned char>(sql[pos])))
+        id_str += sql[pos++];
+
+    if (id_str.empty()) {
+        last_error_ = "KILL requires a connection ID";
+        return -1;
+    }
+
+    uint32_t target_id;
+    try {
+        target_id = static_cast<uint32_t>(std::stoul(id_str));
+    } catch (...) {
+        last_error_ = "Invalid connection ID: " + id_str;
+        return -1;
+    }
+
+    ConnectionHandler* target = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(ConnectionHandler::GetRegistryMutex());
+        auto& registry = ConnectionHandler::GetRegistry();
+        auto it = registry.find(target_id);
+        if (it != registry.end()) {
+            target = it->second;
+            registry.erase(it);  // remove before Stop() to prevent double-erase
+        }
+    }
+
+    if (!target) {
+        last_error_ = "Unknown connection ID: " + id_str;
+        return -1;
+    }
+
+    target->Stop();
+    return 0;
+}
+
+int ExecutionEngine::ExecuteShowUsers(std::vector<Tuple>* results,
+                                       const Schema** output_schema) {
+    if (!auth_mgr_) {
+        last_error_ = "AuthManager not available";
+        return -1;
+    }
+
+    static Schema users_schema({
+        Column("user", TypeId::VARCHAR, 64),
+        Column("host", TypeId::VARCHAR, 128),
+        Column("created", TypeId::VARCHAR, 128),
+    });
+    if (output_schema) *output_schema = &users_schema;
+    if (!results) return 0;
+
+    auto users = auth_mgr_->GetUsers();
+    for (const auto& u : users) {
+        std::vector<Value> row;
+        row.push_back(Value::CreateVarchar(u.user));
+        row.push_back(Value::CreateVarchar(u.host));
+        row.push_back(Value::CreateVarchar(""));
+        results->push_back(Tuple::CreateFromValues(row, &users_schema));
+    }
+    return 0;
+}
+
+int ExecutionEngine::ExecuteShowGrants(const std::string& sql,
+                                        std::vector<Tuple>* results,
+                                        const Schema** output_schema) {
+    if (!auth_mgr_) {
+        last_error_ = "AuthManager not available";
+        return -1;
+    }
+
+    // Parse: SHOW GRANTS FOR 'user'@'host'
+    std::string upper = sql;
+    for (auto& c : upper) c = static_cast<char>(toupper(static_cast<unsigned char>(c)));
+
+    size_t for_pos = upper.find(" FOR ");
+    if (for_pos == std::string::npos) {
+        last_error_ = "SHOW GRANTS requires FOR clause";
+        return -1;
+    }
+
+    size_t parse_pos = for_pos + 5;  // strlen(" FOR ")
+    std::string user, host;
+    if (!ParseUserHost(sql, parse_pos, user, host)) {
+        last_error_ = "Invalid user@host format in SHOW GRANTS";
+        return -1;
+    }
+
+    static Schema grants_schema({
+        Column("Grants", TypeId::VARCHAR, 1024),
+    });
+    if (output_schema) *output_schema = &grants_schema;
+    if (!results) return 0;
+
+    auto privs = auth_mgr_->GetPrivileges();
+
+    // Group privileges by (db, table) for the target user
+    std::map<std::pair<std::string, std::string>, uint32_t> grouped;
+    for (const auto& p : privs) {
+        if (p.user == user && (p.host == host || p.host == "%")) {
+            grouped[{p.db, p.table_name}] |= p.privileges;
+        }
+    }
+
+    // Privilege name mapping
+    static const std::pair<Privilege, const char*> kPrivNames[] = {
+        {Privilege::SELECT, "SELECT"}, {Privilege::INSERT, "INSERT"},
+        {Privilege::UPDATE, "UPDATE"}, {Privilege::DELETE, "DELETE"},
+        {Privilege::CREATE, "CREATE"}, {Privilege::DROP,   "DROP"},
+        {Privilege::INDEX,  "INDEX"},  {Privilege::ALTER,  "ALTER"},
+        {Privilege::GRANT,  "GRANT OPTION"},
+    };
+
+    for (const auto& [key, priv_mask] : grouped) {
+        const auto& [db, table] = key;
+        std::string priv_str;
+        if ((priv_mask & static_cast<uint32_t>(Privilege::ALL)) ==
+            static_cast<uint32_t>(Privilege::ALL)) {
+            priv_str = "ALL PRIVILEGES";
+        } else {
+            for (const auto& [p, name] : kPrivNames) {
+                if (priv_mask & static_cast<uint32_t>(p)) {
+                    if (!priv_str.empty()) priv_str += ", ";
+                    priv_str += name;
+                }
+            }
+        }
+        if (priv_str.empty()) priv_str = "USAGE";
+
+        std::string grant = "GRANT " + priv_str + " ON " + db + "." + table +
+                            " TO '" + user + "'@'" + host + "'";
+
+        std::vector<Value> row;
+        row.push_back(Value::CreateVarchar(grant));
+        results->push_back(Tuple::CreateFromValues(row, &grants_schema));
+    }
+
+    if (results->empty()) {
+        std::vector<Value> row;
+        row.push_back(Value::CreateVarchar(
+            "GRANT USAGE ON *.* TO '" + user + "'@'" + host + "'"));
+        results->push_back(Tuple::CreateFromValues(row, &grants_schema));
+    }
+
+    return 0;
+}
+
+int ExecutionEngine::ExecuteShowErrorLog(const std::string& sql,
+                                          std::vector<Tuple>* results,
+                                          const Schema** output_schema) {
+    if (!log_mgr_) {
+        last_error_ = "LogManager not available";
+        return -1;
+    }
+
+    static Schema errorlog_schema({
+        Column("time", TypeId::VARCHAR, 32),
+        Column("level", TypeId::VARCHAR, 8),
+        Column("code", TypeId::INTEGER),
+        Column("message", TypeId::VARCHAR, 1024),
+        Column("source", TypeId::VARCHAR, 256),
+    });
+    if (output_schema) *output_schema = &errorlog_schema;
+    if (!results) return 0;
+
+    // Parse optional level filter: WHERE level = 'ERROR' or AND level = 'ERROR'
+    std::string upper = sql;
+    for (auto& c : upper) c = static_cast<char>(toupper(static_cast<unsigned char>(c)));
+
+    std::string level_filter;
+    size_t level_pos = upper.find("LEVEL = '");
+    if (level_pos == std::string::npos) level_pos = upper.find("LEVEL='");
+    if (level_pos != std::string::npos) {
+        size_t q_start = upper.find('\'', level_pos);
+        if (q_start != std::string::npos) {
+            size_t q_end = upper.find('\'', q_start + 1);
+            if (q_end != std::string::npos) {
+                level_filter = sql.substr(q_start + 1, q_end - q_start - 1);
+            }
+        }
+    }
+
+    // Parse optional keyword filter: WHERE message LIKE '%keyword%' or AND message LIKE '%keyword%'
+    std::string keyword;
+    size_t like_pos = upper.find("LIKE '%");
+    if (like_pos != std::string::npos) {
+        size_t kw_start = like_pos + 7;  // strlen("LIKE '%")
+        size_t kw_end = upper.find("%'", kw_start);
+        if (kw_end != std::string::npos) {
+            keyword = sql.substr(kw_start, kw_end - kw_start);
+        }
+    }
+
+    // Parse LIMIT
+    size_t max_count = 200;
+    size_t limit_pos = upper.find("LIMIT ");
+    if (limit_pos != std::string::npos) {
+        std::string num_str;
+        size_t num_start = limit_pos + 6;
+        while (num_start < sql.size() && isspace(static_cast<unsigned char>(sql[num_start]))) num_start++;
+        while (num_start < sql.size() && isdigit(static_cast<unsigned char>(sql[num_start])))
+            num_str += sql[num_start++];
+        if (!num_str.empty()) {
+            try { max_count = std::stoull(num_str); } catch (...) {}
+        }
+    }
+
+    auto entries = log_mgr_->GetErrorLog().GetRecentEntries(max_count);
+
+    for (const auto& e : entries) {
+        // Apply level filter
+        if (!level_filter.empty()) {
+            std::string entry_level = e.level;
+            for (auto& c : entry_level) c = static_cast<char>(toupper(static_cast<unsigned char>(c)));
+            if (entry_level != level_filter) continue;
+        }
+        // Apply keyword filter
+        if (!keyword.empty()) {
+            if (e.message.find(keyword) == std::string::npos) continue;
+        }
+
+        std::vector<Value> row;
+        row.push_back(Value::CreateVarchar(e.timestamp));
+        row.push_back(Value::CreateVarchar(e.level));
+        row.push_back(Value::CreateInteger(e.code));
+        row.push_back(Value::CreateVarchar(e.message));
+        row.push_back(Value::CreateVarchar(e.source));
+        results->push_back(Tuple::CreateFromValues(row, &errorlog_schema));
+    }
+
+    return 0;
+}
+
+int ExecutionEngine::ExecuteShowQueryLog(const std::string& sql,
+                                          std::vector<Tuple>* results,
+                                          const Schema** output_schema) {
+    if (!log_mgr_) {
+        last_error_ = "LogManager not available";
+        return -1;
+    }
+
+    static Schema querylog_schema({
+        Column("time", TypeId::VARCHAR, 32),
+        Column("user", TypeId::VARCHAR, 64),
+        Column("host", TypeId::VARCHAR, 128),
+        Column("database", TypeId::VARCHAR, 128),
+        Column("duration", TypeId::VARCHAR, 32),
+        Column("rows", TypeId::BIGINT),
+        Column("query", TypeId::VARCHAR, 4096),
+    });
+    if (output_schema) *output_schema = &querylog_schema;
+    if (!results) return 0;
+
+    // Parse LIMIT
+    std::string upper = sql;
+    for (auto& c : upper) c = static_cast<char>(toupper(static_cast<unsigned char>(c)));
+    size_t max_count = 200;
+    size_t limit_pos = upper.find("LIMIT ");
+    if (limit_pos != std::string::npos) {
+        std::string num_str;
+        size_t num_start = limit_pos + 6;
+        while (num_start < sql.size() && isspace(static_cast<unsigned char>(sql[num_start]))) num_start++;
+        while (num_start < sql.size() && isdigit(static_cast<unsigned char>(sql[num_start])))
+            num_str += sql[num_start++];
+        if (!num_str.empty()) {
+            try { max_count = std::stoull(num_str); } catch (...) {}
+        }
+    }
+
+    auto entries = log_mgr_->GetQueryLog().GetRecentEntries(max_count);
+
+    for (const auto& e : entries) {
+        std::vector<Value> row;
+        row.push_back(Value::CreateVarchar(e.timestamp));
+        row.push_back(Value::CreateVarchar(e.user));
+        row.push_back(Value::CreateVarchar(e.host));
+        row.push_back(Value::CreateVarchar(e.database));
+        row.push_back(Value::CreateVarchar(
+            std::to_string(e.exec_time_ms) + "ms"));
+        row.push_back(Value::CreateBigInt(
+            static_cast<int64_t>(e.rows_affected)));
+        row.push_back(Value::CreateVarchar(e.sql));
+        results->push_back(Tuple::CreateFromValues(row, &querylog_schema));
+    }
+
+    return 0;
+}
+
+int ExecutionEngine::ExecuteShowBinaryLog(const std::string& /*sql*/,
+                                           std::vector<Tuple>* results,
+                                           const Schema** output_schema) {
+    if (!log_mgr_) {
+        last_error_ = "LogManager not available";
+        return -1;
+    }
+
+    static Schema binlog_schema({
+        Column("LogName", TypeId::VARCHAR, 256),
+        Column("Size", TypeId::BIGINT),
+        Column("Records", TypeId::INTEGER),
+    });
+    if (output_schema) *output_schema = &binlog_schema;
+    if (!results) return 0;
+
+    auto files = log_mgr_->GetBinlogWriter().ListBinlogFiles();
+    for (const auto& f : files) {
+        std::vector<Value> row;
+        row.push_back(Value::CreateVarchar(f));
+        row.push_back(Value::CreateBigInt(0));
+        row.push_back(Value::CreateInteger(0));
+        results->push_back(Tuple::CreateFromValues(row, &binlog_schema));
+    }
+
+    return 0;
+}
+
+// =============================================================================
+// Permission enforcement helpers
+// =============================================================================
+
+std::string ExecutionEngine::ExtractTableName(const ASTNode* node) {
+    if (!node) return "*";
+
+    // Try to extract the table name from the statement via dynamic_cast
+    // We do this by walking through the known statement types
+    auto* select = dynamic_cast<const SelectStatement*>(node);
+    if (select) return select->table_name.empty() ? "*" : select->table_name;
+
+    auto* insert = dynamic_cast<const InsertStatement*>(node);
+    if (insert) return insert->table_name.empty() ? "*" : insert->table_name;
+
+    auto* update = dynamic_cast<const UpdateStatement*>(node);
+    if (update) return update->table_name.empty() ? "*" : update->table_name;
+
+    auto* del = dynamic_cast<const DeleteStatement*>(node);
+    if (del) return del->table_name.empty() ? "*" : del->table_name;
+
+    auto* create = dynamic_cast<const CreateStatement*>(node);
+    if (create) return create->table_name.empty() ? "*" : create->table_name;
+
+    auto* drop = dynamic_cast<const DropStatement*>(node);
+    if (drop) return drop->table_name.empty() ? "*" : drop->table_name;
+
+    auto* create_idx = dynamic_cast<const CreateIndexStatement*>(node);
+    if (create_idx) return create_idx->table_name.empty() ? "*" : create_idx->table_name;
+
+    return "*";
+}
+
+Privilege ExecutionEngine::GetRequiredPrivilege(uint8_t node_type) {
+    switch (static_cast<ASTNodeType>(node_type)) {
+        case ASTNodeType::STATEMENT_SELECT:
+            return Privilege::SELECT;
+        case ASTNodeType::STATEMENT_INSERT:
+            return Privilege::INSERT;
+        case ASTNodeType::STATEMENT_UPDATE:
+            return Privilege::UPDATE;
+        case ASTNodeType::STATEMENT_DELETE:
+            return Privilege::DELETE;
+        case ASTNodeType::STATEMENT_CREATE:
+            return Privilege::CREATE;
+        case ASTNodeType::STATEMENT_DROP:
+            return Privilege::DROP;
+        case ASTNodeType::STATEMENT_CREATE_INDEX:
+            return Privilege::INDEX;
+        default:
+            return Privilege::ALL;  // Unknown — require all
+    }
+}
+
+bool ExecutionEngine::CheckPrivilegeForStatement(Privilege required,
+                                                  const std::string& table_name) {
+    // No auth manager or no current user — allow (backward compat)
+    if (!auth_mgr_ || current_user_.empty()) return true;
+
+    // root always has all privileges
+    if (current_user_ == "root") return true;
+
+    // Use "goods_db" as the default database name
+    bool ok = auth_mgr_->CheckAccess(current_user_, current_host_,
+                                      "goods_db", table_name, required);
+    if (!ok) {
+        last_error_ = "Access denied for user '" + current_user_ +
+                      "' to table '" + table_name +
+                      "' (requires " + PrivilegeToString(required) + ")";
+    }
+    return ok;
+}
+
+bool ExecutionEngine::CheckAdminAccess() {
+    // No auth manager or no current user — allow (backward compat)
+    if (!auth_mgr_ || current_user_.empty()) return true;
+
+    // root always has all privileges
+    if (current_user_ == "root") return true;
+
+    // Admin commands require GRANT privilege on *.*
+    bool ok = auth_mgr_->CheckAccess(current_user_, current_host_,
+                                      "goods_db", "*", Privilege::GRANT);
+    if (!ok) {
+        last_error_ = "Access denied for user '" + current_user_ +
+                      "' — GRANT privilege required for administrative commands";
+    }
+    return ok;
+}
+
+int ExecutionEngine::ExecuteRegisterFk(const std::string& sql,
+                                        std::vector<Tuple>* /*results*/,
+                                        const Schema** /*output_schema*/) {
+    // Format: REGISTER_FK parent_table.parent_column child_table.child_column [CASCADE|RESTRICT|SET_NULL]
+    // Example: REGISTER_FK warehouses.id inventory.warehouse_id CASCADE
+    std::string args = sql.substr(12);  // skip "REGISTER_FK "
+    // Trim leading/trailing whitespace
+    size_t start = args.find_first_not_of(" \t");
+    size_t end = args.find_last_not_of(" \t");
+    if (start == std::string::npos || end == std::string::npos) {
+        last_error_ = "REGISTER_FK: missing arguments";
+        return -1;
+    }
+    args = args.substr(start, end - start + 1);
+
+    // Split by whitespace
+    std::vector<std::string> parts;
+    size_t pos = 0;
+    while (pos < args.size()) {
+        size_t next = args.find_first_of(" \t", pos);
+        if (next == std::string::npos) {
+            parts.push_back(args.substr(pos));
+            break;
+        }
+        parts.push_back(args.substr(pos, next - pos));
+        pos = args.find_first_not_of(" \t", next);
+        if (pos == std::string::npos) break;
+    }
+
+    if (parts.size() < 2) {
+        last_error_ = "REGISTER_FK: expected at least 2 arguments";
+        return -1;
+    }
+
+    // Parse parent_table.parent_column
+    std::string parent_table, parent_column;
+    size_t dot1 = parts[0].find('.');
+    if (dot1 == std::string::npos) {
+        last_error_ = "REGISTER_FK: expected parent_table.parent_column format";
+        return -1;
+    }
+    parent_table = parts[0].substr(0, dot1);
+    parent_column = parts[0].substr(dot1 + 1);
+
+    // Parse child_table.child_column
+    std::string child_table, child_column;
+    size_t dot2 = parts[1].find('.');
+    if (dot2 == std::string::npos) {
+        last_error_ = "REGISTER_FK: expected child_table.child_column format";
+        return -1;
+    }
+    child_table = parts[1].substr(0, dot2);
+    child_column = parts[1].substr(dot2 + 1);
+
+    // Parse optional action (default: CASCADE)
+    FkAction action = FkAction::CASCADE;
+    if (parts.size() >= 3) {
+        std::string action_str = parts[2];
+        for (auto& c : action_str) c = static_cast<char>(toupper(static_cast<unsigned char>(c)));
+        if (action_str == "RESTRICT") action = FkAction::RESTRICT;
+        else if (action_str == "SET_NULL" || action_str == "SETNULL") action = FkAction::SET_NULL;
+        else if (action_str != "CASCADE") {
+            last_error_ = "REGISTER_FK: unknown action '" + parts[2] + "'";
+            return -1;
+        }
+    }
+
+    if (!catalog_) {
+        last_error_ = "REGISTER_FK: no catalog available";
+        return -1;
+    }
+
+    bool ok = catalog_->RegisterForeignKey(parent_table, parent_column,
+                                           child_table, child_column, action);
+    if (!ok) {
+        last_error_ = "REGISTER_FK: failed to register FK (table not found?)";
+        return -1;
+    }
+
     return 0;
 }
 

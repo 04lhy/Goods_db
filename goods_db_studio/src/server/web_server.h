@@ -20,7 +20,7 @@ class WebServer {
   WebServer();
   ~WebServer();
 
-  // Start listening on host:port (default 0.0.0.0:9090)
+  // Start listening on host:port (default 0.0.0.0:8080)
   bool Start(const std::string& host, uint16_t port);
 
   // Signal shutdown

@@ -5,6 +5,7 @@
 #include <QApplication>
 #include <QClipboard>
 #include <QHeaderView>
+#include <QIcon>
 #include <QMenu>
 #include <QVBoxLayout>
 
@@ -82,9 +83,9 @@ void ObjectTreeWidget::Refresh() {
 }
 
 void ObjectTreeWidget::SetupToolbar() {
-  QAction* refresh_action = toolbar_->addAction(tr("Refresh"));
+  QAction* refresh_action = toolbar_->addAction(QIcon(":/icons/refresh.svg"), tr("Refresh"));
   connect(refresh_action, &QAction::triggered, this, [this]() { Refresh(); });
-  QAction* collapse_action = toolbar_->addAction(tr("Collapse All"));
+  QAction* collapse_action = toolbar_->addAction(QIcon(":/icons/folder.svg"), tr("Collapse All"));
   connect(collapse_action, &QAction::triggered, this, [this]() {
     tree_view_->collapseAll();
   });

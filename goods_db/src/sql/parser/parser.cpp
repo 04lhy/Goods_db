@@ -621,8 +621,32 @@ std::unique_ptr<CreateStatement> Parser::TranslateCreateStmt(void* pg_node) {
             auto* node = lfirst(cell);
             if (nodeTag(node) == T_PGColumnDef) {
                 result->columns.push_back(TranslateColumnDef(node));
+            } else if (nodeTag(node) == T_PGConstraint) {
+                // Handle table-level constraints (PRIMARY KEY, UNIQUE, etc.)
+                auto* constraint = castNode(PGConstraint, node);
+                switch (constraint->contype) {
+                    case PG_CONSTR_PRIMARY: {
+                        // Set is_primary_key on matching columns
+                        if (constraint->keys != nullptr) {
+                            PGListCell* key_cell = nullptr;
+                            foreach (key_cell, constraint->keys) {
+                                auto* key_val = castNode(PGValue, lfirst(key_cell));
+                                std::string pk_col_name = std::string(strVal(key_val));
+                                for (auto& col : result->columns) {
+                                    if (col.column_name == pk_col_name) {
+                                        col.is_primary_key = true;
+                                        col.is_nullable = false;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        break;
+                    }
+                    default:
+                        break;
+                }
             }
-            // Skip constraints for now (T_PGConstraint)
         }
     }
 

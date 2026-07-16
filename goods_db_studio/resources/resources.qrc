@@ -2,5 +2,40 @@
     <qresource prefix="/">
         <file>themes/dark.qss</file>
         <file>themes/light.qss</file>
+        <file>icons/about.svg</file>
+        <file>icons/backup.svg</file>
+        <file>icons/browse.svg</file>
+        <file>icons/clear_filter.svg</file>
+        <file>icons/column.svg</file>
+        <file>icons/commit.svg</file>
+        <file>icons/connect.svg</file>
+        <file>icons/dashboard.svg</file>
+        <file>icons/database.svg</file>
+        <file>icons/disconnect.svg</file>
+        <file>icons/execute.svg</file>
+        <file>icons/export.svg</file>
+        <file>icons/filter.svg</file>
+        <file>icons/flush.svg</file>
+        <file>icons/folder.svg</file>
+        <file>icons/kill_connection.svg</file>
+        <file>icons/log.svg</file>
+        <file>icons/new_connection.svg</file>
+        <file>icons/open_file.svg</file>
+        <file>icons/password.svg</file>
+        <file>icons/permissions.svg</file>
+        <file>icons/ping.svg</file>
+        <file>icons/process_list.svg</file>
+        <file>icons/refresh.svg</file>
+        <file>icons/reload.svg</file>
+        <file>icons/restore.svg</file>
+        <file>icons/rollback.svg</file>
+        <file>icons/save.svg</file>
+        <file>icons/search.svg</file>
+        <file>icons/settings.svg</file>
+        <file>icons/shutdown.svg</file>
+        <file>icons/stop.svg</file>
+        <file>icons/table.svg</file>
+        <file>icons/user_add.svg</file>
+        <file>icons/user_delete.svg</file>
     </qresource>
 </RCC>

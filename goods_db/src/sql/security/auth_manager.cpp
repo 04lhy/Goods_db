@@ -7,6 +7,17 @@
 #include <sstream>
 #include <iomanip>
 
+#include "buffer/buffer_pool_manager.h"
+#include "catalog/catalog.h"
+#include "common/logger.h"
+#include "storage/disk/disk_manager.h"
+#include "storage/page/table_page.h"
+#include "storage/table/table_heap.h"
+#include "storage/table/table_iterator.h"
+#include "storage/table/tuple.h"
+#include "type/schema.h"
+#include "type/value.h"
+
 namespace goods_db {
 
 // ---- SHA-256 implementation -------------------------------------------------
@@ -97,30 +108,229 @@ std::string AuthManager::Sha256(const std::string& data) {
   return hex.str();
 }
 
-// ---- Public methods ---------------------------------------------------------
+// =============================================================================
+// Helper: create a TableHeap-backed system table file
+// =============================================================================
 
-void AuthManager::Initialize(Catalog* catalog, BufferPoolManager* bpm) {
-  catalog_ = catalog;
-  bpm_ = bpm;
-  initialized_ = true;
+namespace {
 
-  // Create default root user (host='localhost', user='root', password='')
+/** Initialize a new .db file and return (file_id, root_page_id) */
+std::pair<uint16_t, page_id_t> InitTableFile(
+    DiskManager* dm, BufferPoolManager* bpm,
+    const std::string& table_name, const std::string& file_path) {
+  uint16_t file_id = dm->CreateFile(table_name, file_path);
+  if (file_id == static_cast<uint16_t>(-1)) {
+    return {static_cast<uint16_t>(-1), INVALID_PAGE_ID};
+  }
+
+  page_id_t root_page_id = dm->AllocatePage(file_id);
+  if (root_page_id == INVALID_PAGE_ID) {
+    return {file_id, INVALID_PAGE_ID};
+  }
+
+  Page* page = bpm->FetchPage(root_page_id);
+  if (!page) return {file_id, INVALID_PAGE_ID};
+
+  page->WLatch();
+  std::memset(page->GetData(), 0, PAGE_SIZE);
+  TablePage tp;
+  tp.LoadFromData(page->GetData());
+  tp.Init(root_page_id);
+  page->MarkDirty();
+  page->WUnlatch();
+  bpm->UnpinPage(root_page_id, true);
+
+  return {file_id, root_page_id};
+}
+
+}  // anonymous namespace
+
+// ---- System table management -------------------------------------------------
+
+bool AuthManager::OpenSystemTables() {
+  // Try to open existing user table
+  std::string user_path = data_dir_ + "/__sys_user.db";
+  uint16_t user_fid = dm_->OpenFile("__sys_user", user_path);
+  if (user_fid == static_cast<uint16_t>(-1)) return false;
+
+  std::string db_path = data_dir_ + "/__sys_db.db";
+  uint16_t db_fid = dm_->OpenFile("__sys_db", db_path);
+  if (db_fid == static_cast<uint16_t>(-1)) return false;
+
+  std::string tables_priv_path = data_dir_ + "/__sys_tables_priv.db";
+  uint16_t tp_fid = dm_->OpenFile("__sys_tables_priv", tables_priv_path);
+  if (tp_fid == static_cast<uint16_t>(-1)) return false;
+
+  // Build schemas
+  std::vector<Column> user_cols = {
+    Column("host", TypeId::VARCHAR, 60, false),
+    Column("user", TypeId::VARCHAR, 32, false),
+    Column("password_hash", TypeId::VARCHAR, 64, false),
+    Column("salt", TypeId::VARCHAR, 16, false),
+  };
+  user_schema_ = std::make_unique<Schema>(user_cols);
+
+  std::vector<Column> db_cols = {
+    Column("host", TypeId::VARCHAR, 60, false),
+    Column("user", TypeId::VARCHAR, 32, false),
+    Column("db_name", TypeId::VARCHAR, 64, false),
+    Column("privileges", TypeId::INTEGER, 0, false),
+  };
+  db_schema_ = std::make_unique<Schema>(db_cols);
+
+  std::vector<Column> tp_cols = {
+    Column("host", TypeId::VARCHAR, 60, false),
+    Column("user", TypeId::VARCHAR, 32, false),
+    Column("db_name", TypeId::VARCHAR, 64, false),
+    Column("table_name", TypeId::VARCHAR, 64, false),
+    Column("privileges", TypeId::INTEGER, 0, false),
+  };
+  tables_priv_schema_ = std::make_unique<Schema>(tp_cols);
+
+  // Create TableHeaps (page 1 is the first data page)
+  user_file_id_ = user_fid;
+  user_table_ = std::make_unique<TableHeap>(bpm_, MakePageId(user_fid, 1));
+
+  db_file_id_ = db_fid;
+  db_table_ = std::make_unique<TableHeap>(bpm_, MakePageId(db_fid, 1));
+
+  tables_priv_file_id_ = tp_fid;
+  tables_priv_table_ = std::make_unique<TableHeap>(bpm_, MakePageId(tp_fid, 1));
+
+  LOG_INFO("AuthManager: opened existing system tables in {}", data_dir_);
+  return true;
+}
+
+void AuthManager::CreateSystemTables() {
+  LOG_INFO("AuthManager: creating system tables in {}", data_dir_);
+
+  // ---- User table -----------------------------------------------------------
+  std::vector<Column> user_cols = {
+    Column("host", TypeId::VARCHAR, 60, false),
+    Column("user", TypeId::VARCHAR, 32, false),
+    Column("password_hash", TypeId::VARCHAR, 64, false),
+    Column("salt", TypeId::VARCHAR, 16, false),
+  };
+  user_schema_ = std::make_unique<Schema>(user_cols);
+
+  auto [user_fid, user_root] = InitTableFile(
+      dm_, bpm_, "__sys_user", data_dir_ + "/__sys_user.db");
+  if (user_fid == static_cast<uint16_t>(-1) || user_root == INVALID_PAGE_ID) {
+    LOG_ERROR("AuthManager: failed to create __sys_user table");
+    return;
+  }
+  user_file_id_ = user_fid;
+  user_table_ = std::make_unique<TableHeap>(bpm_, user_root);
+
+  // ---- DB privileges table --------------------------------------------------
+  std::vector<Column> db_cols = {
+    Column("host", TypeId::VARCHAR, 60, false),
+    Column("user", TypeId::VARCHAR, 32, false),
+    Column("db_name", TypeId::VARCHAR, 64, false),
+    Column("privileges", TypeId::INTEGER, 0, false),
+  };
+  db_schema_ = std::make_unique<Schema>(db_cols);
+
+  auto [db_fid, db_root] = InitTableFile(
+      dm_, bpm_, "__sys_db", data_dir_ + "/__sys_db.db");
+  if (db_fid == static_cast<uint16_t>(-1) || db_root == INVALID_PAGE_ID) {
+    LOG_ERROR("AuthManager: failed to create __sys_db table");
+    return;
+  }
+  db_file_id_ = db_fid;
+  db_table_ = std::make_unique<TableHeap>(bpm_, db_root);
+
+  // ---- Tables_priv table ----------------------------------------------------
+  std::vector<Column> tp_cols = {
+    Column("host", TypeId::VARCHAR, 60, false),
+    Column("user", TypeId::VARCHAR, 32, false),
+    Column("db_name", TypeId::VARCHAR, 64, false),
+    Column("table_name", TypeId::VARCHAR, 64, false),
+    Column("privileges", TypeId::INTEGER, 0, false),
+  };
+  tables_priv_schema_ = std::make_unique<Schema>(tp_cols);
+
+  auto [tp_fid, tp_root] = InitTableFile(
+      dm_, bpm_, "__sys_tables_priv", data_dir_ + "/__sys_tables_priv.db");
+  if (tp_fid == static_cast<uint16_t>(-1) || tp_root == INVALID_PAGE_ID) {
+    LOG_ERROR("AuthManager: failed to create __sys_tables_priv table");
+    return;
+  }
+  tables_priv_file_id_ = tp_fid;
+  tables_priv_table_ = std::make_unique<TableHeap>(bpm_, tp_root);
+
+  LOG_INFO("AuthManager: system tables created successfully");
+}
+
+void AuthManager::CreateDefaultUsers() {
+  // root@localhost with empty password
   UserRecord root;
   root.host = "localhost";
   root.user = "root";
   root.salt = GenerateSalt();
   root.password_hash = HashPassword("", root.salt);
   user_cache_.push_back(root);
+  PersistUser(root);
 
-  // Also root from any host
+  // root@% with empty password
   UserRecord root_any;
   root_any.host = "%";
   root_any.user = "root";
   root_any.salt = GenerateSalt();
   root_any.password_hash = HashPassword("", root_any.salt);
   user_cache_.push_back(root_any);
+  PersistUser(root_any);
 
-  LoadPrivCache();
+  // admin@localhost with password "12345" — full administrator
+  UserRecord admin;
+  admin.host = "localhost";
+  admin.user = "admin";
+  admin.salt = GenerateSalt();
+  admin.password_hash = HashPassword("12345", admin.salt);
+  user_cache_.push_back(admin);
+  PersistUser(admin);
+
+  // guest@localhost with empty password — read-only guest
+  UserRecord guest;
+  guest.host = "localhost";
+  guest.user = "guest";
+  guest.salt = GenerateSalt();
+  guest.password_hash = HashPassword("", guest.salt);
+  user_cache_.push_back(guest);
+  PersistUser(guest);
+
+  // ---- Grant default privileges ----
+  // root gets ALL on everything
+  GrantPrivilege("root", "%", "*", "*",
+                 static_cast<uint32_t>(Privilege::ALL));
+  // admin gets ALL on everything (can manage users + grant)
+  GrantPrivilege("admin", "localhost", "*", "*",
+                 static_cast<uint32_t>(Privilege::ALL));
+  // guest gets SELECT only (read-only)
+  GrantPrivilege("guest", "localhost", "*", "*",
+                 static_cast<uint32_t>(Privilege::SELECT));
+
+  LOG_INFO("AuthManager: default users created (root, admin, guest)");
+}
+
+// ---- Public methods ---------------------------------------------------------
+
+void AuthManager::Initialize(Catalog* catalog, BufferPoolManager* bpm,
+                              DiskManager* dm, const std::string& data_dir) {
+  catalog_ = catalog;
+  bpm_ = bpm;
+  dm_ = dm;
+  data_dir_ = data_dir;
+  initialized_ = true;
+
+  // Try to open existing system tables, or create them on first run
+  if (!OpenSystemTables()) {
+    CreateSystemTables();
+    CreateDefaultUsers();
+  } else {
+    LoadUserCache();
+    LoadPrivCache();
+  }
 }
 
 bool AuthManager::CheckConnection(const std::string& host,
@@ -170,6 +380,9 @@ bool AuthManager::CreateUser(const std::string& user, const std::string& host,
   rec.salt = GenerateSalt();
   rec.password_hash = HashPassword(password, rec.salt);
   user_cache_.push_back(rec);
+
+  // Persist to system table
+  PersistUser(rec);
   return true;
 }
 
@@ -192,6 +405,9 @@ bool AuthManager::DropUser(const std::string& user, const std::string& host) {
                      }),
       priv_cache_.end());
 
+  // Remove from persisted system tables
+  RemoveUserFromTable(user, host);
+  RemovePrivFromTable(user, host, "*", "*");
   return true;
 }
 
@@ -210,6 +426,10 @@ bool AuthManager::SetPassword(const std::string& user,
     if (rec.user == user && rec.host == host) {
       rec.salt = GenerateSalt();
       rec.password_hash = HashPassword(new_password, rec.salt);
+
+      // Update persisted record: remove old, insert new
+      RemoveUserFromTable(user, host);
+      PersistUser(rec);
       return true;
     }
   }
@@ -227,7 +447,10 @@ bool AuthManager::GrantPrivilege(const std::string& user,
   for (auto& rec : priv_cache_) {
     if (rec.user == user && rec.host == host && rec.db == db &&
         rec.table_name == table) {
+      // Remove old persisted record
+      RemovePrivFromTable(user, host, db, table);
       rec.privileges |= privileges;
+      PersistPriv(rec);
       return true;
     }
   }
@@ -239,6 +462,8 @@ bool AuthManager::GrantPrivilege(const std::string& user,
   rec.table_name = table;
   rec.privileges = privileges;
   priv_cache_.push_back(rec);
+
+  PersistPriv(rec);
   return true;
 }
 
@@ -252,7 +477,12 @@ bool AuthManager::RevokePrivilege(const std::string& user,
   for (auto& rec : priv_cache_) {
     if (rec.user == user && rec.host == host && rec.db == db &&
         rec.table_name == table) {
+      // Remove old persisted record
+      RemovePrivFromTable(user, host, db, table);
       rec.privileges &= ~privileges;
+      if (rec.privileges != 0) {
+        PersistPriv(rec);
+      }
       return true;
     }
   }
@@ -261,6 +491,8 @@ bool AuthManager::RevokePrivilege(const std::string& user,
 
 void AuthManager::FlushPrivileges() {
   std::lock_guard<std::mutex> lock(mutex_);
+  user_cache_.clear();
+  priv_cache_.clear();
   LoadUserCache();
   LoadPrivCache();
 }
@@ -305,6 +537,21 @@ bool AuthManager::IsHostBlocked(const std::string& host) {
   return false;
 }
 
+void AuthManager::ClearBlockList() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  block_list_.clear();
+}
+
+std::vector<AuthManager::UserRecord> AuthManager::GetUsers() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return user_cache_;
+}
+
+std::vector<AuthManager::PrivRecord> AuthManager::GetPrivileges() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return priv_cache_;
+}
+
 // ---- Private helpers --------------------------------------------------------
 
 std::string AuthManager::GenerateSalt() {
@@ -328,12 +575,147 @@ std::string AuthManager::HashPassword(const std::string& password,
 }
 
 void AuthManager::LoadUserCache() {
-  // In a full implementation, this would load from Catalog/system tables.
-  // For now, the cache is managed in-memory.
+  if (!user_table_ || !user_schema_) return;
+
+  auto it = user_table_->MakeIterator();
+  while (it->HasNext()) {
+    auto [rid, tuple] = it->Next();
+    UserRecord rec;
+    rec.host = tuple.GetValue(user_schema_.get(), 0).GetAsVarchar();
+    rec.user = tuple.GetValue(user_schema_.get(), 1).GetAsVarchar();
+    rec.password_hash = tuple.GetValue(user_schema_.get(), 2).GetAsVarchar();
+    rec.salt = tuple.GetValue(user_schema_.get(), 3).GetAsVarchar();
+    user_cache_.push_back(rec);
+  }
+  LOG_INFO("AuthManager: loaded {} user(s) from disk", user_cache_.size());
 }
 
 void AuthManager::LoadPrivCache() {
-  // In a full implementation, this would load from Catalog/system tables.
+  // Load database-level privileges
+  if (db_table_ && db_schema_) {
+    auto it = db_table_->MakeIterator();
+    while (it->HasNext()) {
+      auto [rid, tuple] = it->Next();
+      PrivRecord rec;
+      rec.host = tuple.GetValue(db_schema_.get(), 0).GetAsVarchar();
+      rec.user = tuple.GetValue(db_schema_.get(), 1).GetAsVarchar();
+      rec.db = tuple.GetValue(db_schema_.get(), 2).GetAsVarchar();
+      rec.privileges = static_cast<uint32_t>(
+          tuple.GetValue(db_schema_.get(), 3).GetAsInteger());
+      rec.table_name = "*";
+      priv_cache_.push_back(rec);
+    }
+  }
+
+  // Load table-level privileges
+  if (tables_priv_table_ && tables_priv_schema_) {
+    auto it = tables_priv_table_->MakeIterator();
+    while (it->HasNext()) {
+      auto [rid, tuple] = it->Next();
+      PrivRecord rec;
+      rec.host = tuple.GetValue(tables_priv_schema_.get(), 0).GetAsVarchar();
+      rec.user = tuple.GetValue(tables_priv_schema_.get(), 1).GetAsVarchar();
+      rec.db = tuple.GetValue(tables_priv_schema_.get(), 2).GetAsVarchar();
+      rec.table_name = tuple.GetValue(tables_priv_schema_.get(), 3).GetAsVarchar();
+      rec.privileges = static_cast<uint32_t>(
+          tuple.GetValue(tables_priv_schema_.get(), 4).GetAsInteger());
+      priv_cache_.push_back(rec);
+    }
+  }
+
+  LOG_INFO("AuthManager: loaded {} privilege(s) from disk", priv_cache_.size());
+}
+
+void AuthManager::PersistUser(const UserRecord& rec) {
+  if (!user_table_ || !user_schema_) return;
+
+  std::vector<Value> values = {
+    Value::CreateVarchar(rec.host),
+    Value::CreateVarchar(rec.user),
+    Value::CreateVarchar(rec.password_hash),
+    Value::CreateVarchar(rec.salt),
+  };
+  Tuple tuple = Tuple::CreateFromValues(values, user_schema_.get());
+  RID rid;
+  user_table_->InsertTuple(tuple, &rid);
+}
+
+void AuthManager::RemoveUserFromTable(const std::string& user,
+                                       const std::string& host) {
+  if (!user_table_ || !user_schema_) return;
+
+  auto it = user_table_->MakeIterator();
+  while (it->HasNext()) {
+    auto [rid, tuple] = it->Next();
+    std::string h = tuple.GetValue(user_schema_.get(), 0).GetAsVarchar();
+    std::string u = tuple.GetValue(user_schema_.get(), 1).GetAsVarchar();
+    if (h == host && u == user) {
+      user_table_->MarkDelete(rid);
+    }
+  }
+}
+
+void AuthManager::PersistPriv(const PrivRecord& rec) {
+  if (rec.table_name == "*" || rec.table_name == "%") {
+    // Store as database-level privilege
+    if (!db_table_ || !db_schema_) return;
+    std::vector<Value> values = {
+      Value::CreateVarchar(rec.host),
+      Value::CreateVarchar(rec.user),
+      Value::CreateVarchar(rec.db),
+      Value::CreateInteger(static_cast<int32_t>(rec.privileges)),
+    };
+    Tuple tuple = Tuple::CreateFromValues(values, db_schema_.get());
+    RID rid;
+    db_table_->InsertTuple(tuple, &rid);
+  } else {
+    // Store as table-level privilege
+    if (!tables_priv_table_ || !tables_priv_schema_) return;
+    std::vector<Value> values = {
+      Value::CreateVarchar(rec.host),
+      Value::CreateVarchar(rec.user),
+      Value::CreateVarchar(rec.db),
+      Value::CreateVarchar(rec.table_name),
+      Value::CreateInteger(static_cast<int32_t>(rec.privileges)),
+    };
+    Tuple tuple = Tuple::CreateFromValues(values, tables_priv_schema_.get());
+    RID rid;
+    tables_priv_table_->InsertTuple(tuple, &rid);
+  }
+}
+
+void AuthManager::RemovePrivFromTable(const std::string& user,
+                                       const std::string& host,
+                                       const std::string& db,
+                                       const std::string& table) {
+  // Remove from database-level privileges
+  if (db_table_ && db_schema_) {
+    auto it = db_table_->MakeIterator();
+    while (it->HasNext()) {
+      auto [rid, tuple] = it->Next();
+      std::string h = tuple.GetValue(db_schema_.get(), 0).GetAsVarchar();
+      std::string u = tuple.GetValue(db_schema_.get(), 1).GetAsVarchar();
+      std::string d = tuple.GetValue(db_schema_.get(), 2).GetAsVarchar();
+      if (h == host && u == user && d == db) {
+        db_table_->MarkDelete(rid);
+      }
+    }
+  }
+
+  // Remove from table-level privileges
+  if (tables_priv_table_ && tables_priv_schema_) {
+    auto it = tables_priv_table_->MakeIterator();
+    while (it->HasNext()) {
+      auto [rid, tuple] = it->Next();
+      std::string h = tuple.GetValue(tables_priv_schema_.get(), 0).GetAsVarchar();
+      std::string u = tuple.GetValue(tables_priv_schema_.get(), 1).GetAsVarchar();
+      std::string d = tuple.GetValue(tables_priv_schema_.get(), 2).GetAsVarchar();
+      std::string t = tuple.GetValue(tables_priv_schema_.get(), 3).GetAsVarchar();
+      if (h == host && u == user && d == db && t == table) {
+        tables_priv_table_->MarkDelete(rid);
+      }
+    }
+  }
 }
 
 const AuthManager::UserRecord* AuthManager::FindUser(
@@ -342,6 +724,14 @@ const AuthManager::UserRecord* AuthManager::FindUser(
   for (const auto& rec : user_cache_) {
     if (rec.user == user && rec.host == host) {
       return &rec;
+    }
+  }
+  // Treat 127.0.0.1 / ::1 as equivalent to "localhost"
+  if (host == "127.0.0.1" || host == "::1") {
+    for (const auto& rec : user_cache_) {
+      if (rec.user == user && rec.host == "localhost") {
+        return &rec;
+      }
     }
   }
   // Try wildcard host
@@ -356,7 +746,7 @@ const AuthManager::UserRecord* AuthManager::FindUser(
 const AuthManager::PrivRecord* AuthManager::FindBestMatch(
     const std::string& user, const std::string& host, const std::string& db,
     const std::string& table) const {
-  // Priority: exact match > wildcard host > wildcard db > wildcard table
+  // Priority: exact match > localhost alias > wildcard host > wildcard db > wildcard table
   const PrivRecord* best = nullptr;
   int best_score = -1;
 
@@ -364,6 +754,7 @@ const AuthManager::PrivRecord* AuthManager::FindBestMatch(
     int score = 0;
     if (rec.user == user) {
       if (rec.host == host) score += 4;
+      else if ((host == "127.0.0.1" || host == "::1") && rec.host == "localhost") score += 3;
       else if (rec.host == "%") score += 2;
       else continue;
 

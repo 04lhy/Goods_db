@@ -69,7 +69,10 @@ Tuple Tuple::CreateFromValues(const std::vector<Value>& values,
         const auto& col = schema->GetColumn(i);
         if (col.column_type == TypeId::VARCHAR) {
             varchar_offsets.push_back(total_size);
-            total_size += 4 + values[i].GetAsVarchar().size();  // 4B length + data
+            uint32_t str_len = (values[i].GetTypeId() != TypeId::INVALID)
+                                   ? values[i].GetAsVarchar().size()
+                                   : 0;
+            total_size += 4 + str_len;  // 4B length + data
         }
     }
 
@@ -84,6 +87,15 @@ Tuple Tuple::CreateFromValues(const std::vector<Value>& values,
 
     // Null bitmap (all zeros = no nulls)
     std::memset(tuple.data_.data() + header_size, 0, null_bitmap_size);
+
+    // Set null bitmap bits for NULL (TypeId::INVALID) values
+    for (uint32_t i = 0; i < col_count; i++) {
+        if (values[i].GetTypeId() == TypeId::INVALID) {
+            uint8_t byte_idx = i / 8;
+            uint8_t bit_idx = i % 8;
+            tuple.data_[header_size + byte_idx] |= static_cast<char>(1 << bit_idx);
+        }
+    }
 
     // Write fixed-length column data and VARCHAR offsets
     char* fixed_ptr = tuple.data_.data() + header_size + null_bitmap_size;
@@ -100,16 +112,98 @@ Tuple Tuple::CreateFromValues(const std::vector<Value>& values,
             var_offset_ptr += 4;
 
             // Write VARCHAR data with 4-byte length prefix
-            const std::string& str = values[i].GetAsVarchar();
-            uint32_t str_len = str.size();
+            // Handle unspecified columns (TypeId::INVALID) by defaulting to empty string
+            uint32_t str_len = 0;
+            std::string empty_str;
+            const std::string* str_ptr = &empty_str;
+            if (values[i].GetTypeId() != TypeId::INVALID) {
+                str_ptr = &values[i].GetAsVarchar();
+                str_len = str_ptr->size();
+            }
             std::memcpy(tuple.data_.data() + offset, &str_len, 4);
-            std::memcpy(tuple.data_.data() + offset + 4, str.data(), str_len);
+            if (str_len > 0) {
+                std::memcpy(tuple.data_.data() + offset + 4, str_ptr->data(), str_len);
+            }
             varchar_idx++;
         } else {
             // Write fixed-length data
+            // Handle unspecified columns (TypeId::INVALID) by defaulting to zero.
+            // Also coerce VARCHAR values (from parser string literals) to the
+            // column's actual type to avoid buffer overflow (VARCHAR serialization
+            // writes 4+len bytes, but fixed-size columns have only GetFixedSize()).
             uint32_t fixed_size = col.GetFixedSize();
             std::string serialized(fixed_size, '\0');
-            values[i].SerializeTo(serialized.data());
+            TypeId val_type = values[i].GetTypeId();
+            if (val_type != TypeId::INVALID) {
+                if (val_type == col.column_type) {
+                    values[i].SerializeTo(serialized.data());
+                } else {
+                    // Coerce between types (parser produces BIGINT for all integers)
+                    bool is_val_numeric = (val_type >= TypeId::TINYINT && val_type <= TypeId::DECIMAL);
+                    bool is_col_numeric = (col.column_type >= TypeId::TINYINT && col.column_type <= TypeId::DECIMAL);
+                    if (is_val_numeric && is_col_numeric) {
+                        int64_t num = 0;
+                        switch (val_type) {
+                            case TypeId::TINYINT:  num = values[i].GetAsTinyInt(); break;
+                            case TypeId::SMALLINT: num = values[i].GetAsSmallInt(); break;
+                            case TypeId::INTEGER:  num = values[i].GetAsInteger(); break;
+                            case TypeId::BIGINT:   num = values[i].GetAsBigInt(); break;
+                            case TypeId::DECIMAL:  num = static_cast<int64_t>(values[i].GetAsDecimal()); break;
+                            default: break;
+                        }
+                        switch (col.column_type) {
+                            case TypeId::TINYINT:  { auto v = static_cast<int8_t>(num);  std::memcpy(serialized.data(), &v, 1); break; }
+                            case TypeId::SMALLINT: { auto v = static_cast<int16_t>(num); std::memcpy(serialized.data(), &v, 2); break; }
+                            case TypeId::INTEGER:  { auto v = static_cast<int32_t>(num); std::memcpy(serialized.data(), &v, 4); break; }
+                            case TypeId::BIGINT:   { std::memcpy(serialized.data(), &num, 8); break; }
+                            case TypeId::DECIMAL:  { auto v = static_cast<double>(num); std::memcpy(serialized.data(), &v, 8); break; }
+                            case TypeId::BOOLEAN:  { serialized[0] = (num != 0) ? 1 : 0; break; }
+                            case TypeId::TIMESTAMP:{ std::memcpy(serialized.data(), &num, 8); break; }
+                            default: break;
+                        }
+                    } else if (val_type == TypeId::VARCHAR) {
+                    // Coerce string literal → target type
+                    const std::string& str = values[i].GetAsVarchar();
+                    switch (col.column_type) {
+                        case TypeId::BOOLEAN:
+                            serialized[0] = (str == "true" || str == "1") ? 1 : 0;
+                            break;
+                        case TypeId::TINYINT: {
+                            int8_t v = static_cast<int8_t>(std::stoll(str));
+                            serialized[0] = v;
+                            break;
+                        }
+                        case TypeId::SMALLINT: {
+                            int16_t v = static_cast<int16_t>(std::stoll(str));
+                            std::memcpy(serialized.data(), &v, 2);
+                            break;
+                        }
+                        case TypeId::INTEGER: {
+                            int32_t v = static_cast<int32_t>(std::stoll(str));
+                            std::memcpy(serialized.data(), &v, 4);
+                            break;
+                        }
+                        case TypeId::BIGINT: {
+                            int64_t v = std::stoll(str);
+                            std::memcpy(serialized.data(), &v, 8);
+                            break;
+                        }
+                        case TypeId::DECIMAL: {
+                            double v = std::stod(str);
+                            std::memcpy(serialized.data(), &v, 8);
+                            break;
+                        }
+                        case TypeId::TIMESTAMP: {
+                            int64_t v = Value::ParseTimestamp(str);
+                            std::memcpy(serialized.data(), &v, 8);
+                            break;
+                        }
+                        default: break;
+                    }
+                    }
+                }
+                // else: other type mismatches → zero (already set)
+            }
             std::memcpy(fixed_ptr, serialized.data(), fixed_size);
             fixed_ptr += fixed_size;
         }
@@ -139,6 +233,16 @@ Value Tuple::GetValue(const Schema* schema, uint32_t col_idx) const {
     const Column& col = schema->GetColumn(col_idx);
     uint32_t header_size = 4;
     uint32_t null_bitmap_size = (schema->GetColumnCount() + 7) / 8;
+
+    // Check null bitmap — return TypeId::INVALID (NULL) if bit is set
+    {
+        uint8_t byte_idx = col_idx / 8;
+        uint8_t bit_idx = col_idx % 8;
+        if (static_cast<uint8_t>(data_[header_size + byte_idx]) & (1 << bit_idx)) {
+            return Value();  // NULL → TypeId::INVALID
+        }
+    }
+
     uint32_t fixed_offset = header_size + null_bitmap_size;
 
     // Calculate where var offset area starts (after all fixed-length columns)
